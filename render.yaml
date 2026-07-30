@@ -1,5 +1,5 @@
 # Atul Bakery Sales Analytics — Render Blueprint
-# Free Node web service (needed for Clover API proxy; static sites can't hold secrets)
+# Free Node web service (Clover API needs a server — not a static site)
 
 services:
   - type: web
@@ -7,12 +7,11 @@ services:
     runtime: node
     plan: free
     rootDir: dashboard
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    # Install devDependencies so `tsc` / `vite` are available during build
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node server/index.js
     healthCheckPath: /api/health
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: CLOVER_BASE_URL
         value: https://api.clover.com
       - key: CLOVER_STORE_NAME

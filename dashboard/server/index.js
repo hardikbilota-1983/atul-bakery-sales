@@ -189,7 +189,7 @@ app.post('/api/clover/sync', async (req, res) => {
   }
 })
 
-const isProd = process.env.NODE_ENV === 'production'
+const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true'
 
 if (isProd) {
   app.use(express.static(distDir))
