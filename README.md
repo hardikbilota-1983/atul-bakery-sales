@@ -2,8 +2,6 @@
 
 ## React dashboard (recommended)
 
-A modern Sales Analytics app lives in [`dashboard/`](./dashboard/). It auto-loads every Clover **Items Report** CSV in this folder.
-
 ```powershell
 cd dashboard
 npm install
@@ -12,14 +10,25 @@ npm run dev
 
 Open **http://127.0.0.1:5173/**
 
-## Legacy Streamlit app
+## Deploy on Render (free)
 
-`app.py` is an older Streamlit prototype. Its `src/` modules are incomplete; prefer the React dashboard above.
+This repo includes [`render.yaml`](./render.yaml) for a free **Static Site**.
 
-## Data
+1. Push to GitHub
+2. Go to [render.com](https://dashboard.render.com) → **New** → **Blueprint**
+3. Connect the repo → **Apply**
 
-Place Clover exports (CSV / Excel / JSON) next to this README, e.g.:
+Manual static site settings:
 
-`ATUL BAKERY HILLSIDE-Revenue Item Sales Mar 2026.csv`
+| Setting | Value |
+|---------|--------|
+| Root Directory | `dashboard` |
+| Build Command | `npm install && npm run build` |
+| Publish Directory | `dist` |
+| Rewrite | `/*` → `/index.html` |
 
-The Vite plugin serves them at `/data/*` during development and copies them into `dist/data` on build.
+Sales CSVs ship in `dashboard/public/data/` so the hosted build includes your reports.
+
+## Legacy Streamlit
+
+`app.py` is an older prototype; prefer the React dashboard.
