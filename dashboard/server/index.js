@@ -1,5 +1,6 @@
 import dotenv from 'dotenv'
 import path from 'node:path'
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -192,14 +193,24 @@ app.post('/api/clover/sync', async (req, res) => {
 const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true'
 
 if (isProd) {
+  if (!fs.existsSync(distDir)) {
+    console.warn(`[warn] dist/ missing at ${distDir} — UI will not load`)
+  } else {
+    console.log(`[info] serving static from ${distDir}`)
+  }
   app.use(express.static(distDir))
-  app.get('*', (req, res, next) => {
+  // Express 5: bare "*" is invalid and crashes startup — use a middleware fallback
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next()
     if (req.path.startsWith('/api')) return next()
-    res.sendFile(path.join(distDir, 'index.html'))
+    res.sendFile(path.join(distDir, 'index.html'), (err) => {
+      if (err) next(err)
+    })
   })
 }
 
-app.listen(PORT, () => {
-  console.log(`Sales API listening on http://127.0.0.1:${PORT} (${isProd ? 'production' : 'dev'})`)
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Sales API listening on 0.0.0.0:${PORT} (${isProd ? 'production' : 'dev'})`)
   console.log(`Clover configured: ${cloverConfigured()}`)
+  console.log(`RENDER=${process.env.RENDER ?? ''} NODE_ENV=${process.env.NODE_ENV ?? ''}`)
 })
