@@ -5,9 +5,11 @@ services:
   - type: web
     name: atul-bakery-sales
     runtime: node
+    plan: free
     rootDir: dashboard
     buildCommand: npm install && npm run build
     startCommand: npm start
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production

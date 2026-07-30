@@ -102,8 +102,11 @@ export function CloverSyncPanel({ onSynced }: Props) {
 
           {status.cache && (
             <p className="mb-2 text-[11px] text-muted">
-              Last sync: {new Date(status.cache.syncedAt).toLocaleString()} ·{' '}
-              {status.cache.lineCount.toLocaleString()} lines
+              {status.todayCached
+                ? `Today (${status.dayKey}) cached · `
+                : `Today not cached yet · `}
+              {status.cache.lineCount.toLocaleString()} lines total
+              {status.catalogCached ? ' · Catalog ready' : ''}
             </p>
           )}
 

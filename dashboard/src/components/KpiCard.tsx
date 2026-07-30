@@ -26,6 +26,8 @@ type Props = {
   spark?: number[]
   subtitle?: string
   delay?: number
+  /** e.g. "vs prior" or "vs prior (same time)" */
+  priorLabel?: string
 }
 
 export function KpiCard({
@@ -37,6 +39,7 @@ export function KpiCard({
   spark = [],
   subtitle,
   delay = 0,
+  priorLabel = 'vs prior',
 }: Props) {
   const TrendIcon =
     growth == null || growth === 0 ? Minus : growth > 0 ? ArrowUpRight : ArrowDownRight
@@ -69,7 +72,7 @@ export function KpiCard({
           <div className={cn('mt-2 inline-flex items-center gap-1 text-xs font-medium', trendColor)}>
             <TrendIcon className="h-3.5 w-3.5" />
             <span>{formatPct(growth ?? null)}</span>
-            <span className="text-muted font-normal">vs prior</span>
+            <span className="text-muted font-normal">{priorLabel}</span>
           </div>
         </div>
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">

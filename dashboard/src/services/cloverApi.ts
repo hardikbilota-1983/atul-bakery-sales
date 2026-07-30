@@ -1,7 +1,12 @@
+import type { SalesLine } from '@/types/sales'
+
 export type CloverStatus = {
   configured: boolean
   merchant: { ok: boolean; merchantId: string; name?: string } | null
   error: string | null
+  todayCached?: boolean
+  dayKey?: string
+  catalogCached?: boolean
   cache: {
     syncedAt: string
     lineCount: number
@@ -9,6 +14,7 @@ export type CloverStatus = {
     startMs: number
     endMs: number
     store?: string
+    cachedDays?: string[]
   } | null
 }
 
@@ -20,6 +26,29 @@ export type CloverSyncResult = {
   skippedOpen: number
   startMs: number
   endMs: number
+  cachedDays?: string[]
+  error?: string
+}
+
+export type CloverCatalog = {
+  fetchedAt: string
+  fromCache?: boolean
+  categories: string[]
+  productsByCategory: Record<string, string[]>
+  products?: { name: string; category: string; id?: string }[]
+  itemCount: number
+}
+
+export type CloverBootstrap = {
+  ok: boolean
+  fromCache: boolean
+  dayKey: string
+  todayLineCount: number
+  syncedAt: string
+  orderCount: number
+  lineCount: number
+  lines: SalesLine[]
+  catalog: CloverCatalog
   error?: string
 }
 
@@ -40,10 +69,24 @@ export async function syncClover(startDate: string, endDate: string): Promise<Cl
   return json
 }
 
-export async function fetchCloverSalesLines(): Promise<import('@/types/sales').SalesLine[]> {
+export async function bootstrapClover(): Promise<CloverBootstrap> {
+  const res = await fetch('/api/clover/bootstrap', { method: 'POST' })
+  const json = (await res.json()) as CloverBootstrap & { error?: string }
+  if (!res.ok) throw new Error(json.error || `Bootstrap failed (${res.status})`)
+  return json
+}
+
+export async function fetchCloverCatalog(force = false): Promise<CloverCatalog> {
+  const res = await fetch(`/api/clover/catalog${force ? '?force=1' : ''}`)
+  const json = (await res.json()) as CloverCatalog & { error?: string }
+  if (!res.ok) throw new Error(json.error || `Catalog failed (${res.status})`)
+  return json
+}
+
+export async function fetchCloverSalesLines(): Promise<SalesLine[]> {
   const res = await fetch('/api/clover/sales')
   if (res.status === 404) return []
   if (!res.ok) throw new Error(`Clover sales ${res.status}`)
-  const json = (await res.json()) as { lines?: import('@/types/sales').SalesLine[] }
+  const json = (await res.json()) as { lines?: SalesLine[] }
   return json.lines ?? []
 }

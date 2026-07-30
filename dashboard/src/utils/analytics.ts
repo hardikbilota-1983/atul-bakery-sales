@@ -134,7 +134,7 @@ function periodLabel(key: string, grain: TrendGrain): string {
 }
 
 export function aggregateByPeriod(lines: SalesLine[], grain: TrendGrain): PeriodPoint[] {
-  const map = new Map<string, PeriodPoint>()
+  const map = new Map<string, PeriodPoint & { orderIds: Set<string> }>()
   for (const l of lines) {
     const key = periodKey(l.orderDate, grain)
     let p = map.get(key)
@@ -146,15 +146,22 @@ export function aggregateByPeriod(lines: SalesLine[], grain: TrendGrain): Period
         quantity: 0,
         profit: 0,
         orders: 0,
+        orderIds: new Set(),
       }
       map.set(key, p)
     }
     p.revenue += l.revenue
     p.quantity += l.quantity
     p.profit += l.profit
-    p.orders += 1
+    if (l.orderId) p.orderIds.add(l.orderId)
+    else p.orders += 1
   }
-  return [...map.values()].sort((a, b) => a.period.localeCompare(b.period))
+  return [...map.values()]
+    .map(({ orderIds, ...rest }) => ({
+      ...rest,
+      orders: orderIds.size || rest.orders,
+    }))
+    .sort((a, b) => a.period.localeCompare(b.period))
 }
 
 export function aggregateProducts(lines: SalesLine[], prevLines?: SalesLine[]): ProductAgg[] {
@@ -243,7 +250,25 @@ export function aggregateCategories(lines: SalesLine[]): CategoryAgg[] {
     .sort((a, b) => b.revenue - a.revenue)
 }
 
-export function computeKpis(lines: SalesLine[], prevLines: SalesLine[] = []): KpiBundle {
+export function countPaidOrders(lines: SalesLine[]): number {
+  const ids = new Set<string>()
+  for (const l of lines) {
+    if (l.orderId) ids.add(l.orderId)
+  }
+  return ids.size
+}
+
+function growthPct(current: number, previous: number, hasPrior: boolean): number | null {
+  if (!hasPrior) return null
+  if (previous === 0) return current > 0 ? 100 : null
+  return ((current - previous) / previous) * 100
+}
+
+export function computeKpis(
+  lines: SalesLine[],
+  prevLines: SalesLine[] = [],
+  opts?: { priorSameTime?: boolean },
+): KpiBundle {
   const products = aggregateProducts(lines, prevLines).filter(
     (p) => p.revenue > 0 && !/^https?:\/\//i.test(p.productName),
   )
@@ -251,9 +276,14 @@ export function computeKpis(lines: SalesLine[], prevLines: SalesLine[] = []): Kp
   const totalRevenue = lines.reduce((s, l) => s + l.revenue, 0)
   const totalQuantity = lines.reduce((s, l) => s + l.quantity, 0)
   const totalProfit = lines.reduce((s, l) => s + l.profit, 0)
-  const totalOrders = lines.length // line rows when no order_id
+  const paidOrders = countPaidOrders(lines)
+  const averageOrderSize = paidOrders ? totalRevenue / paidOrders : 0
+
   const prevRevenue = prevLines.reduce((s, l) => s + l.revenue, 0)
   const prevQty = prevLines.reduce((s, l) => s + l.quantity, 0)
+  const prevPaidOrders = countPaidOrders(prevLines)
+  const prevAov = prevPaidOrders ? prevRevenue / prevPaidOrders : 0
+  const hasPrior = prevLines.length > 0 || prevPaidOrders > 0 || prevRevenue > 0
 
   const sparkRevenue = periods.map((p) => p.revenue)
   const sparkQuantity = periods.map((p) => p.quantity)
@@ -265,36 +295,83 @@ export function computeKpis(lines: SalesLine[], prevLines: SalesLine[] = []): Kp
 
   return {
     totalRevenue,
-    totalOrders,
+    paidOrders,
     totalQuantity,
-    averageOrderValue: totalOrders ? totalRevenue / totalOrders : 0,
+    averageOrderSize,
+    totalOrders: paidOrders,
+    averageOrderValue: averageOrderSize,
     totalProfit,
     profitMarginPct: totalRevenue ? (totalProfit / totalRevenue) * 100 : 0,
     highestItem: highest,
     lowestItem: lowest,
     productCount: new Set(lines.map((l) => l.productName)).size,
     categoryCount: new Set(lines.map((l) => l.category)).size,
-    revenueGrowthPct:
-      prevLines.length === 0
-        ? null
-        : prevRevenue === 0
-          ? totalRevenue > 0
-            ? 100
-            : null
-          : ((totalRevenue - prevRevenue) / prevRevenue) * 100,
-    quantityGrowthPct:
-      prevLines.length === 0
-        ? null
-        : prevQty === 0
-          ? totalQuantity > 0
-            ? 100
-            : null
-          : ((totalQuantity - prevQty) / prevQty) * 100,
+    revenueGrowthPct: growthPct(totalRevenue, prevRevenue, hasPrior),
+    paidOrdersGrowthPct: growthPct(paidOrders, prevPaidOrders, hasPrior),
+    quantityGrowthPct: growthPct(totalQuantity, prevQty, hasPrior),
+    averageOrderSizeGrowthPct: growthPct(averageOrderSize, prevAov, hasPrior),
+    priorSameTime: Boolean(opts?.priorSameTime),
     sparkRevenue,
     sparkQuantity,
     sparkOrders,
     sparkAov,
   }
+}
+
+/**
+ * Prior window for KPI growth.
+ * - Single calendar day that is still "today": prior day, midnight → same clock time.
+ * - Single completed day: prior day full (end of day).
+ * - Multi-day ranges: previous equal-length window (full days).
+ */
+export function priorComparisonLines(
+  all: SalesLine[],
+  filtered: SalesLine[],
+  filters: DashboardFilters,
+  dataMin: string,
+  dataMax: string,
+): { lines: SalesLine[]; priorSameTime: boolean } {
+  if (!filtered.length) return { lines: [], priorSameTime: false }
+
+  const { start, end } = resolveDateRange(filters, dataMin, dataMax)
+  const isDaily = start === end
+  const todayKey = format(new Date(), 'yyyy-MM-dd')
+
+  if (isDaily) {
+    const day = parseISO(start)
+    const priorKey = format(subDays(day, 1), 'yyyy-MM-dd')
+    const priorDayLines = all.filter((l) => l.orderDate === priorKey)
+
+    // In-progress day → cut prior day at the same clock time
+    if (start === todayKey) {
+      const now = new Date()
+      const priorStart = parseISO(priorKey)
+      priorStart.setHours(0, 0, 0, 0)
+      const cutoffMs =
+        priorStart.getTime() +
+        now.getHours() * 3600000 +
+        now.getMinutes() * 60000 +
+        now.getSeconds() * 1000 +
+        now.getMilliseconds()
+
+      const hasTimestamps = priorDayLines.some((l) => l.createdTimeMs != null)
+      if (hasTimestamps) {
+        return {
+          lines: priorDayLines.filter(
+            (l) => l.createdTimeMs == null || l.createdTimeMs <= cutoffMs,
+          ),
+          priorSameTime: true,
+        }
+      }
+      // No timestamps in cache yet — fall back to full prior day
+      return { lines: priorDayLines, priorSameTime: false }
+    }
+
+    // Completed single day → prior day end-of-day (full day)
+    return { lines: priorDayLines, priorSameTime: false }
+  }
+
+  return { lines: previousPeriodLines(all, filtered), priorSameTime: false }
 }
 
 /**

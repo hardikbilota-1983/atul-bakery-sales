@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const CACHE_PATH = path.join(__dirname, 'cache', 'clover-sales.json')
+export const CATALOG_PATH = path.join(__dirname, 'cache', 'clover-catalog.json')
 
 function config() {
   const merchantId = process.env.CLOVER_MERCHANT_ID?.trim()
@@ -36,6 +37,36 @@ function writeCache(payload) {
   fs.writeFileSync(CACHE_PATH, JSON.stringify(payload, null, 2))
 }
 
+export function readCatalogCache() {
+  try {
+    if (!fs.existsSync(CATALOG_PATH)) return null
+    return JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function writeCatalogCache(payload) {
+  fs.mkdirSync(path.dirname(CATALOG_PATH), { recursive: true })
+  fs.writeFileSync(CATALOG_PATH, JSON.stringify(payload, null, 2))
+}
+
+/** Local calendar day key YYYY-MM-DD */
+export function localDayKey(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+export function todayBounds() {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const end = new Date()
+  end.setHours(23, 59, 59, 999)
+  return { start, end, dayKey: localDayKey(start) }
+}
+
 async function cloverGet(apiPath, query = {}) {
   const { merchantId, token, baseUrl } = config()
   if (!merchantId || !token) {
@@ -62,7 +93,6 @@ async function cloverGet(apiPath, query = {}) {
   return res.json()
 }
 
-/** Paginate any Clover list endpoint that returns { elements }. */
 async function fetchAll(apiPath, query = {}, { limit = 100, maxPages = 200 } = {}) {
   const all = []
   let offset = 0
@@ -83,11 +113,8 @@ function centsToDollars(cents) {
 
 function toISODate(ms) {
   const d = new Date(Number(ms))
-  if (!Number.isFinite(d.getTime())) return new Date().toISOString().slice(0, 10)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  if (!Number.isFinite(d.getTime())) return localDayKey()
+  return localDayKey(d)
 }
 
 function categoryFromItem(item) {
@@ -103,25 +130,86 @@ function paymentMethodFromOrder(order) {
   return t ? String(t) : undefined
 }
 
+async function buildCategoryMap() {
+  const categoryByItemId = new Map()
+  const categories = await fetchAll('/categories', { expand: 'items' }, { limit: 100 })
+  for (const cat of categories) {
+    for (const item of cat.items?.elements ?? []) {
+      if (item?.id && !categoryByItemId.has(item.id)) {
+        categoryByItemId.set(item.id, cat.name || 'Uncategorized')
+      }
+    }
+  }
+  return { categories, categoryByItemId }
+}
+
 /**
- * Sync paid orders in [startMs, endMs] and map to SalesLine rows (one row per line item).
+ * Fetch inventory categories + products once; subsequent callers hit disk cache.
+ */
+export async function ensureCatalog({ force = false } = {}) {
+  if (!force) {
+    const cached = readCatalogCache()
+    if (cached?.categories?.length) {
+      const categoryByItemId = new Map()
+      for (const p of cached.products ?? []) {
+        if (p.id) categoryByItemId.set(p.id, p.category)
+      }
+      return { ...cached, fromCache: true, categoryByItemId }
+    }
+  }
+
+  const { categories, categoryByItemId } = await buildCategoryMap()
+  const productsByCategory = {}
+  const products = []
+  const categoryNames = []
+
+  for (const cat of categories) {
+    const catName = String(cat.name || 'Uncategorized').trim() || 'Uncategorized'
+    categoryNames.push(catName)
+    const names = []
+    for (const item of cat.items?.elements ?? []) {
+      const name = String(item.name || '').trim()
+      if (!name) continue
+      names.push(name)
+      products.push({ name, category: catName, id: item.id })
+    }
+    productsByCategory[catName] = [...new Set(names)].sort((a, b) => a.localeCompare(b))
+  }
+
+  const payload = {
+    fetchedAt: new Date().toISOString(),
+    categories: [...new Set(categoryNames)].sort((a, b) => a.localeCompare(b)),
+    productsByCategory,
+    products,
+    itemCount: products.length,
+  }
+  writeCatalogCache(payload)
+  const categoryByItemIdOut = new Map()
+  for (const p of products) {
+    if (p.id) categoryByItemIdOut.set(p.id, p.category)
+  }
+  return { ...payload, fromCache: false, categoryByItemId: categoryByItemIdOut }
+}
+
+/**
+ * Sync paid orders in [startMs, endMs] and map to SalesLine rows.
+ * Merges into existing cache by replacing lines for overlapping calendar days.
  */
 export async function syncCloverSales({ startMs, endMs }) {
   const { store } = config()
 
-  // Build category map from inventory (faster than expanding every line)
-  const categoryByItemId = new Map()
+  let categoryByItemId = new Map()
   try {
-    const categories = await fetchAll('/categories', { expand: 'items' }, { limit: 100 })
-    for (const cat of categories) {
-      for (const item of cat.items?.elements ?? []) {
-        if (item?.id && !categoryByItemId.has(item.id)) {
-          categoryByItemId.set(item.id, cat.name || 'Uncategorized')
-        }
+    const catalog = await ensureCatalog()
+    if (catalog.categoryByItemId) {
+      categoryByItemId = catalog.categoryByItemId
+    } else if (catalog.products) {
+      for (const p of catalog.products) {
+        if (p.id) categoryByItemId.set(p.id, p.category)
       }
     }
   } catch {
-    // Category map is optional — fall back to line item expand
+    // optional
   }
 
   const filters = [`createdTime>=${startMs}`, `createdTime<=${endMs}`]
@@ -136,16 +224,18 @@ export async function syncCloverSales({ startMs, endMs }) {
 
   const lines = []
   let skippedOpen = 0
+  const touchedDays = new Set()
 
   for (const order of orders) {
     const payments = order.payments?.elements ?? []
-    // Match Items Report: paid / partially paid / refunded — skip purely open carts
     if (!payments.length && String(order.state || '').toLowerCase() === 'open') {
       skippedOpen++
       continue
     }
 
     const orderDate = toISODate(order.createdTime || order.clientCreatedTime)
+    const createdTimeMs = Number(order.createdTime || order.clientCreatedTime) || undefined
+    touchedDays.add(orderDate)
     const paymentMethod = paymentMethodFromOrder(order)
     const customer =
       order.customers?.elements?.[0]?.firstName ||
@@ -153,14 +243,12 @@ export async function syncCloverSales({ startMs, endMs }) {
       undefined
 
     for (const li of order.lineItems?.elements ?? []) {
-      // Skip modifier-only rows that Clover sometimes nests separately — mods are on parent
       const qty = Number(li.unitQty ?? 1) || 1
       const gross = centsToDollars(li.price) * qty
       const discountCents = (li.discounts?.elements ?? []).reduce(
         (s, d) => s + Number(d.amount ?? 0),
         0,
       )
-      // Clover discount amounts on line items are typically negative cents
       const discounts = Math.abs(centsToDollars(discountCents))
       const revenue = Math.max(0, gross - discounts)
       const itemId = li.item?.id
@@ -186,7 +274,7 @@ export async function syncCloverSales({ startMs, endMs }) {
         refunds: 0,
         refundedQty: 0,
         cogs: 0,
-        profit: revenue + modAmount, // COGS unknown from Orders API
+        profit: revenue + modAmount,
         avgUnitPrice: qty ? (revenue + modAmount) / qty : revenue + modAmount,
         pctNetSales: 0,
         sourceFile: 'clover-api',
@@ -194,22 +282,68 @@ export async function syncCloverSales({ startMs, endMs }) {
         paymentMethod,
         customer: customer ? String(customer) : undefined,
         orderId: order.id ? String(order.id) : undefined,
+        createdTimeMs,
       })
     }
   }
+
+  // Always mark requested calendar days even if zero sales
+  const cursor = new Date(startMs)
+  const end = new Date(endMs)
+  while (cursor <= end) {
+    touchedDays.add(localDayKey(cursor))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  const existing = readCache()
+  const prevLines = existing?.lines ?? []
+  const kept = prevLines.filter((l) => !touchedDays.has(l.orderDate))
+  const mergedLines = [...kept, ...lines]
+  const cachedDays = [
+    ...new Set([...(existing?.cachedDays ?? []), ...touchedDays]),
+  ].sort()
 
   const payload = {
     syncedAt: new Date().toISOString(),
     startMs,
     endMs,
     orderCount: orders.length,
-    lineCount: lines.length,
+    lineCount: mergedLines.length,
     skippedOpen,
     store,
-    lines,
+    cachedDays,
+    lines: mergedLines,
   }
   writeCache(payload)
   return payload
+}
+
+/**
+ * On app load: return today's sales from disk if already fetched today;
+ * otherwise pull today from Clover once and cache.
+ */
+export async function ensureTodaySales() {
+  const { start, end, dayKey } = todayBounds()
+  const cache = readCache()
+  if (cache?.cachedDays?.includes(dayKey)) {
+    return {
+      ...cache,
+      fromCache: true,
+      dayKey,
+      todayLineCount: (cache.lines ?? []).filter((l) => l.orderDate === dayKey).length,
+    }
+  }
+
+  const result = await syncCloverSales({
+    startMs: start.getTime(),
+    endMs: end.getTime(),
+  })
+  return {
+    ...result,
+    fromCache: false,
+    dayKey,
+    todayLineCount: (result.lines ?? []).filter((l) => l.orderDate === dayKey).length,
+  }
 }
 
 export async function testConnection() {

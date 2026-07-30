@@ -57,8 +57,18 @@ function MultiSelect({
 }
 
 export function FilterSidebar({ onClose }: { onClose?: () => void }) {
-  const { filters, setFilters, resetFilters, options, capabilities, reload, files, extent } =
-    useSales()
+  const {
+    filters,
+    setFilters,
+    resetFilters,
+    options,
+    capabilities,
+    reload,
+    extent,
+    fromCache,
+    dayKey,
+    catalog,
+  } = useSales()
 
   return (
     <aside className="glass flex h-full flex-col rounded-2xl p-4">
@@ -66,7 +76,8 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
         <div>
           <h2 className="font-display text-lg font-semibold text-ink">Filters</h2>
           <p className="text-[11px] text-muted">
-            {files.length} files · {extent.min} → {extent.max}
+            {fromCache ? 'Cached' : 'Live'} · {dayKey ?? extent.min}
+            {extent.min !== extent.max ? ` → ${extent.max}` : ''}
           </p>
         </div>
         <div className="flex gap-1">
@@ -140,12 +151,22 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
           options={options.categories}
           value={filters.categories}
           onChange={(categories) => setFilters({ categories })}
+          hint={
+            catalog
+              ? `${catalog.itemCount} products in catalog`
+              : undefined
+          }
         />
         <MultiSelect
           label="Product"
           options={options.products}
           value={filters.products}
           onChange={(products) => setFilters({ products })}
+          hint={
+            filters.categories.length
+              ? `Showing products in ${filters.categories.length} categor${filters.categories.length === 1 ? 'y' : 'ies'}`
+              : 'Select categories to narrow products'
+          }
         />
         <MultiSelect
           label="Store"
@@ -159,7 +180,7 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
           value={filters.paymentMethods}
           onChange={(paymentMethods) => setFilters({ paymentMethods })}
           disabled={!capabilities.hasPayments}
-          hint={!capabilities.hasPayments ? 'Not in Items Report' : undefined}
+          hint={!capabilities.hasPayments ? 'Available after Clover sync' : undefined}
         />
         <MultiSelect
           label="Customer"
@@ -167,14 +188,15 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
           value={filters.customers}
           onChange={(customers) => setFilters({ customers })}
           disabled={!capabilities.hasCustomers}
-          hint={!capabilities.hasCustomers ? 'Not in Items Report' : undefined}
+          hint={!capabilities.hasCustomers ? 'Only when customers are on orders' : undefined}
         />
 
         <label className="flex cursor-pointer flex-col gap-2 rounded-xl border border-dashed border-border p-3 text-xs text-muted hover:border-accent/40">
           <span className="inline-flex items-center gap-2 font-medium text-ink">
             <Upload className="h-4 w-4 text-accent" />
-            Upload more reports
+            Optional CSV upload
           </span>
+          <span className="text-[10px]">CSV is not loaded by default — upload only if needed.</span>
           <input
             type="file"
             accept=".csv,.xlsx,.xls,.json,.jsonl"

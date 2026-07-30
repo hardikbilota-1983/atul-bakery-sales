@@ -10,8 +10,12 @@ import cors from 'cors'
 import {
   cloverConfigured,
   readCache,
+  readCatalogCache,
   syncCloverSales,
+  ensureTodaySales,
+  ensureCatalog,
   testConnection,
+  localDayKey,
 } from './clover.js'
 
 const rootDir = path.resolve(__dirname, '..')
@@ -28,7 +32,9 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/clover/status', async (_req, res) => {
   const cache = readCache()
+  const catalog = readCatalogCache()
   const configured = cloverConfigured()
+  const dayKey = localDayKey()
   let merchant = null
   let error = null
   if (configured) {
@@ -42,6 +48,9 @@ app.get('/api/clover/status', async (_req, res) => {
     configured,
     merchant,
     error,
+    todayCached: Boolean(cache?.cachedDays?.includes(dayKey)),
+    dayKey,
+    catalogCached: Boolean(catalog?.categories?.length),
     cache: cache
       ? {
           syncedAt: cache.syncedAt,
@@ -50,15 +59,78 @@ app.get('/api/clover/status', async (_req, res) => {
           startMs: cache.startMs,
           endMs: cache.endMs,
           store: cache.store,
+          cachedDays: cache.cachedDays ?? [],
         }
       : null,
   })
 })
 
+/** Ensure catalog exists (fetch once), return categories + products. */
+app.get('/api/clover/catalog', async (req, res) => {
+  try {
+    if (!cloverConfigured()) {
+      res.status(400).json({ error: 'Clover is not configured.' })
+      return
+    }
+    const force = req.query.force === '1'
+    const catalog = await ensureCatalog({ force })
+    res.json({
+      fetchedAt: catalog.fetchedAt,
+      fromCache: catalog.fromCache,
+      categories: catalog.categories,
+      productsByCategory: catalog.productsByCategory,
+      products: catalog.products,
+      itemCount: catalog.itemCount,
+    })
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+/**
+ * App bootstrap: ensure today's sales are cached, ensure catalog exists,
+ * return sales lines (all cached days, typically at least today).
+ */
+app.post('/api/clover/bootstrap', async (_req, res) => {
+  try {
+    if (!cloverConfigured()) {
+      res.status(400).json({
+        error:
+          'Missing CLOVER_MERCHANT_ID or CLOVER_API_TOKEN. Add them to .env (local) or Render env vars.',
+      })
+      return
+    }
+
+    const [sales, catalog] = await Promise.all([
+      ensureTodaySales(),
+      ensureCatalog(),
+    ])
+
+    res.json({
+      ok: true,
+      fromCache: sales.fromCache,
+      dayKey: sales.dayKey,
+      todayLineCount: sales.todayLineCount,
+      syncedAt: sales.syncedAt,
+      orderCount: sales.orderCount,
+      lineCount: sales.lineCount,
+      lines: sales.lines,
+      catalog: {
+        fromCache: catalog.fromCache,
+        categories: catalog.categories,
+        productsByCategory: catalog.productsByCategory,
+        itemCount: catalog.itemCount,
+      },
+    })
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
 app.get('/api/clover/sales', (_req, res) => {
   const cache = readCache()
   if (!cache?.lines) {
-    res.status(404).json({ error: 'No Clover sync cache yet. Run Sync first.' })
+    res.status(404).json({ error: 'No Clover sync cache yet.' })
     return
   }
   res.json(cache)
@@ -79,7 +151,6 @@ app.post('/api/clover/sync', async (req, res) => {
       ? new Date(req.body.startDate)
       : new Date(end.getTime() - 90 * 86400000)
 
-    // Inclusive end of day
     start.setHours(0, 0, 0, 0)
     end.setHours(23, 59, 59, 999)
 
@@ -92,7 +163,6 @@ app.post('/api/clover/sync', async (req, res) => {
       return
     }
 
-    // Guardrail: max ~1 year per sync to avoid timeouts
     const maxSpan = 370 * 86400000
     if (end.getTime() - start.getTime() > maxSpan) {
       res.status(400).json({ error: 'Sync range cannot exceed ~1 year. Split into smaller ranges.' })
@@ -112,6 +182,7 @@ app.post('/api/clover/sync', async (req, res) => {
       skippedOpen: result.skippedOpen,
       startMs: result.startMs,
       endMs: result.endMs,
+      cachedDays: result.cachedDays,
     })
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
@@ -120,7 +191,6 @@ app.post('/api/clover/sync', async (req, res) => {
 
 const isProd = process.env.NODE_ENV === 'production'
 
-// Production: serve Vite build
 if (isProd) {
   app.use(express.static(distDir))
   app.get('*', (req, res, next) => {

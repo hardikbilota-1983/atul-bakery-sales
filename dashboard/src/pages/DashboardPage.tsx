@@ -188,39 +188,43 @@ export function DashboardPage() {
         <div ref={exportRef} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              title="Total Revenue"
+              title="Net Sales"
               value={kpis.totalRevenue}
               format={(n) => formatCurrency(n)}
               icon={DollarSign}
               growth={kpis.revenueGrowthPct}
               spark={kpis.sparkRevenue}
+              priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
               delay={0}
             />
             <KpiCard
-              title="Line Items"
-              value={kpis.totalOrders}
+              title="Paid Orders"
+              value={kpis.paidOrders}
               format={(n) => formatNumber(n)}
               icon={Receipt}
-              growth={null}
+              growth={kpis.paidOrdersGrowthPct}
               spark={kpis.sparkOrders}
+              priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
               delay={0.05}
             />
             <KpiCard
-              title="Quantity Sold"
+              title="Average Order Size"
+              value={kpis.averageOrderSize}
+              format={(n) => formatCurrency(n)}
+              icon={ShoppingCart}
+              growth={kpis.averageOrderSizeGrowthPct}
+              spark={kpis.sparkAov}
+              priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
+              delay={0.1}
+            />
+            <KpiCard
+              title="Items Sold"
               value={kpis.totalQuantity}
               format={(n) => formatNumber(n)}
               icon={Package}
               growth={kpis.quantityGrowthPct}
               spark={kpis.sparkQuantity}
-              delay={0.1}
-            />
-            <KpiCard
-              title="Avg Line Value"
-              value={kpis.averageOrderValue}
-              format={(n) => formatCurrency(n)}
-              icon={ShoppingCart}
-              growth={null}
-              spark={kpis.sparkAov}
+              priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
               delay={0.15}
             />
             <KpiCard

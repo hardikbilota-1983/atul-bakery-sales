@@ -18,6 +18,8 @@ export type SalesLine = {
   paymentMethod?: string
   customer?: string
   orderId?: string
+  /** Epoch ms when the order was created (for same-time prior comparisons). */
+  createdTimeMs?: number
 }
 
 export type SalesModifier = {
@@ -75,8 +77,14 @@ export type PeriodPoint = {
 
 export type KpiBundle = {
   totalRevenue: number
-  totalOrders: number
+  /** Unique paid order count (by orderId). */
+  paidOrders: number
   totalQuantity: number
+  /** Net sales ÷ paid orders. */
+  averageOrderSize: number
+  /** @deprecated use paidOrders — kept for older call sites */
+  totalOrders: number
+  /** @deprecated use averageOrderSize */
   averageOrderValue: number
   totalProfit: number
   profitMarginPct: number
@@ -85,7 +93,11 @@ export type KpiBundle = {
   productCount: number
   categoryCount: number
   revenueGrowthPct: number | null
+  paidOrdersGrowthPct: number | null
   quantityGrowthPct: number | null
+  averageOrderSizeGrowthPct: number | null
+  /** True when prior window was cut to the same clock time (daily in-progress day). */
+  priorSameTime: boolean
   sparkRevenue: number[]
   sparkQuantity: number[]
   sparkOrders: number[]

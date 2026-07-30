@@ -9,20 +9,20 @@ import {
 } from 'react'
 import type { DashboardFilters, DataCapabilities, SalesLine } from '@/types/sales'
 import { loadAllSalesData } from '@/services/discover'
+import type { CloverCatalog } from '@/services/cloverApi'
 import {
   aggregateByPeriod,
   aggregateCategories,
   aggregateProducts,
   buildInsights,
   computeKpis,
-  currentGrowthLines,
   dataExtent,
   filterLines,
-  previousPeriodLines,
+  priorComparisonLines,
 } from '@/utils/analytics'
 
 const defaultFilters: DashboardFilters = {
-  datePreset: 'all',
+  datePreset: 'today',
   customStart: null,
   customEnd: null,
   products: [],
@@ -46,6 +46,9 @@ type SalesCtx = {
   reload: (extra?: File[]) => Promise<void>
   extent: { min: string; max: string }
   source: 'clover' | 'csv' | 'mixed' | 'empty'
+  catalog: CloverCatalog | null
+  fromCache: boolean
+  dayKey: string | null
   options: {
     products: string[]
     categories: string[]
@@ -56,25 +59,25 @@ type SalesCtx = {
   derived: ReturnType<typeof buildDerived>
 }
 
-function buildDerived(all: SalesLine[], filtered: SalesLine[]) {
-  const prev = previousPeriodLines(all, filtered)
-  const growthCurrent = currentGrowthLines(all, filtered)
-  const productsFull = aggregateProducts(filtered)
-  const withGrowth = aggregateProducts(growthCurrent, prev)
-  const growthMap = new Map(withGrowth.map((p) => [p.productName, p.growthPct]))
-  const products = productsFull.map((p) => ({
-    ...p,
-    growthPct: growthMap.get(p.productName) ?? null,
-  }))
+function buildDerived(
+  all: SalesLine[],
+  filtered: SalesLine[],
+  filters: DashboardFilters,
+  dataMin: string,
+  dataMax: string,
+) {
+  const { lines: prev, priorSameTime } = priorComparisonLines(
+    all,
+    filtered,
+    filters,
+    dataMin,
+    dataMax,
+  )
+  const productsFull = aggregateProducts(filtered, prev)
+  const products = productsFull
   const categories = aggregateCategories(filtered)
   const monthly = aggregateByPeriod(filtered, 'monthly')
-  const base = computeKpis(filtered, [])
-  const growth = computeKpis(growthCurrent, prev)
-  const kpis = {
-    ...base,
-    revenueGrowthPct: growth.revenueGrowthPct,
-    quantityGrowthPct: growth.quantityGrowthPct,
-  }
+  const kpis = computeKpis(filtered, prev, { priorSameTime })
   const insights = buildInsights(filtered, kpis, products, categories, monthly)
   return { products, categories, monthly, kpis, insights, prev }
 }
@@ -97,6 +100,9 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   })
   const [filters, setFiltersState] = useState<DashboardFilters>(defaultFilters)
   const [source, setSource] = useState<'clover' | 'csv' | 'mixed' | 'empty'>('empty')
+  const [catalog, setCatalog] = useState<CloverCatalog | null>(null)
+  const [fromCache, setFromCache] = useState(false)
+  const [dayKey, setDayKey] = useState<string | null>(null)
 
   const reload = useCallback(async (extra?: File[]) => {
     setLoading(true)
@@ -107,6 +113,9 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       setFiles(data.files)
       setCapabilities(data.capabilities)
       setSource(data.source)
+      setCatalog(data.catalog)
+      setFromCache(Boolean(data.fromCache))
+      setDayKey(data.dayKey ?? null)
       if (data.errors.length && !data.lines.length) {
         setError(data.errors.join('; '))
       }
@@ -128,8 +137,34 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   )
 
   const options = useMemo(() => {
-    const products = [...new Set(lines.map((l) => l.productName))].sort()
-    const categories = [...new Set(lines.map((l) => l.category))].sort()
+    const categories =
+      catalog?.categories?.length
+        ? catalog.categories
+        : [...new Set(lines.map((l) => l.category))].sort()
+
+    let products: string[]
+    if (filters.categories.length && catalog?.productsByCategory) {
+      const set = new Set<string>()
+      for (const cat of filters.categories) {
+        for (const name of catalog.productsByCategory[cat] ?? []) set.add(name)
+      }
+      products = [...set].sort((a, b) => a.localeCompare(b))
+    } else if (filters.categories.length) {
+      products = [
+        ...new Set(
+          lines
+            .filter((l) => filters.categories.includes(l.category))
+            .map((l) => l.productName),
+        ),
+      ].sort()
+    } else if (catalog?.productsByCategory) {
+      products = [
+        ...new Set(Object.values(catalog.productsByCategory).flat()),
+      ].sort((a, b) => a.localeCompare(b))
+    } else {
+      products = [...new Set(lines.map((l) => l.productName))].sort()
+    }
+
     const stores = [...new Set(lines.map((l) => l.store))].sort()
     const paymentMethods = [
       ...new Set(lines.map((l) => l.paymentMethod).filter(Boolean) as string[]),
@@ -138,13 +173,38 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       ...new Set(lines.map((l) => l.customer).filter(Boolean) as string[]),
     ].sort()
     return { products, categories, stores, paymentMethods, customers }
-  }, [lines])
+  }, [lines, catalog, filters.categories])
 
-  const derived = useMemo(() => buildDerived(lines, filtered), [lines, filtered])
+  const derived = useMemo(
+    () => buildDerived(lines, filtered, filters, extent.min, extent.max),
+    [lines, filtered, filters, extent],
+  )
 
   const setFilters = useCallback((patch: Partial<DashboardFilters>) => {
-    setFiltersState((f) => ({ ...f, ...patch }))
-  }, [])
+    setFiltersState((f) => {
+      const next = { ...f, ...patch }
+      // Drop product picks that are outside the newly selected categories
+      if (patch.categories) {
+        if (!patch.categories.length) {
+          // keep products as-is when clearing categories
+        } else {
+          const allowed = new Set<string>()
+          const byCat = catalog?.productsByCategory
+          if (byCat) {
+            for (const cat of patch.categories) {
+              for (const name of byCat[cat] ?? []) allowed.add(name)
+            }
+          } else {
+            for (const l of lines) {
+              if (patch.categories.includes(l.category)) allowed.add(l.productName)
+            }
+          }
+          next.products = (patch.products ?? f.products).filter((p) => allowed.has(p))
+        }
+      }
+      return next
+    })
+  }, [catalog, lines])
 
   const resetFilters = useCallback(() => setFiltersState(defaultFilters), [])
 
@@ -161,6 +221,9 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     reload,
     extent,
     source,
+    catalog,
+    fromCache,
+    dayKey,
     options,
     derived,
   }

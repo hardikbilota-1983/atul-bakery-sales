@@ -1,6 +1,6 @@
 import type { DataCapabilities, SalesLine } from '@/types/sales'
 import { parseSalesFile } from '@/services/schemaInfer'
-import { fetchCloverSalesLines } from '@/services/cloverApi'
+import { bootstrapClover, type CloverCatalog } from '@/services/cloverApi'
 
 export type LoadedDataset = {
   lines: SalesLine[]
@@ -8,113 +8,64 @@ export type LoadedDataset = {
   capabilities: DataCapabilities
   errors: string[]
   source: 'clover' | 'csv' | 'mixed' | 'empty'
+  catalog: CloverCatalog | null
+  fromCache?: boolean
+  dayKey?: string
 }
 
-export async function fetchManifest(): Promise<string[]> {
-  const res = await fetch('/data/manifest.json')
-  if (!res.ok) throw new Error('Could not load data manifest. Is the Vite server running?')
-  const json = (await res.json()) as { files: string[] }
-  return json.files ?? []
-}
-
-async function loadCsvFiles(extraFiles?: File[]): Promise<{ lines: SalesLine[]; files: string[]; errors: string[] }> {
+/** Default load: Clover bootstrap only (today cached server-side). No CSV/PDF. */
+export async function loadAllSalesData(extraFiles?: File[]): Promise<LoadedDataset> {
   const errors: string[] = []
-  const all: SalesLine[] = []
-  const used: string[] = []
 
-  try {
-    const files = await fetchManifest()
-    await Promise.all(
-      files.map(async (name) => {
-        try {
-          const res = await fetch(`/data/${encodeURIComponent(name)}`)
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const buf = await res.arrayBuffer()
-          const { lines } = await parseSalesFile(name, buf)
-          all.push(...lines)
-          used.push(name)
-        } catch (e) {
-          errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`)
-        }
-      }),
-    )
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e))
-  }
-
+  // Optional manual uploads only — never auto-load public/data CSVs
   if (extraFiles?.length) {
+    const uploaded: SalesLine[] = []
+    const used: string[] = []
     for (const f of extraFiles) {
       try {
         const buf = await f.arrayBuffer()
         const { lines } = await parseSalesFile(f.name, buf)
-        all.push(...lines)
+        uploaded.push(...lines)
         used.push(f.name)
       } catch (e) {
         errors.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
+    if (uploaded.length) {
+      return {
+        lines: uploaded,
+        files: used,
+        capabilities: detectCapabilities(uploaded),
+        errors,
+        source: 'csv',
+        catalog: null,
+      }
+    }
   }
-
-  return { lines: all, files: used, errors }
-}
-
-export async function loadAllSalesData(
-  extraFiles?: File[],
-  opts?: { includeCsvWithClover?: boolean },
-): Promise<LoadedDataset> {
-  const errors: string[] = []
-  let cloverLines: SalesLine[] = []
 
   try {
-    cloverLines = await fetchCloverSalesLines()
-  } catch (e) {
-    // API server may be down in pure static mode — ignore
-    const msg = e instanceof Error ? e.message : String(e)
-    if (!msg.includes('Failed to fetch') && !msg.includes('404')) {
-      errors.push(`Clover: ${msg}`)
-    }
-  }
-
-  const csv = await loadCsvFiles(extraFiles)
-  errors.push(...csv.errors)
-
-  if (cloverLines.length && !opts?.includeCsvWithClover) {
+    const boot = await bootstrapClover()
     return {
-      lines: cloverLines,
+      lines: boot.lines ?? [],
       files: ['clover-api'],
-      capabilities: detectCapabilities(cloverLines),
+      capabilities: detectCapabilities(boot.lines ?? []),
       errors,
-      source: 'clover',
+      source: boot.lines?.length ? 'clover' : 'empty',
+      catalog: boot.catalog,
+      fromCache: boot.fromCache,
+      dayKey: boot.dayKey,
     }
-  }
-
-  if (cloverLines.length && opts?.includeCsvWithClover) {
-    const lines = [...cloverLines, ...csv.lines]
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    errors.push(msg)
     return {
-      lines,
-      files: ['clover-api', ...csv.files],
-      capabilities: detectCapabilities(lines),
+      lines: [],
+      files: [],
+      capabilities: detectCapabilities([]),
       errors,
-      source: 'mixed',
+      source: 'empty',
+      catalog: null,
     }
-  }
-
-  if (csv.lines.length) {
-    return {
-      lines: csv.lines,
-      files: csv.files,
-      capabilities: detectCapabilities(csv.lines),
-      errors,
-      source: 'csv',
-    }
-  }
-
-  return {
-    lines: [],
-    files: [],
-    capabilities: detectCapabilities([]),
-    errors: errors.length ? errors : ['No sales data found'],
-    source: 'empty',
   }
 }
 
