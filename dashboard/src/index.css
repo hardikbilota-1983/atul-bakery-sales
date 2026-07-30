@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-border: var(--border);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+}
+
+:root {
+  --surface: #f4f6f8;
+  --surface-2: rgba(255, 255, 255, 0.72);
+  --ink: #0f172a;
+  --muted: #64748b;
+  --accent: #0d9488;
+  --accent-2: #0369a1;
+  --border: rgba(15, 23, 42, 0.08);
+  --success: #059669;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --bg-gradient: radial-gradient(1200px 600px at 10% -10%, #ccfbf1 0%, transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, #e0f2fe 0%, transparent 50%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  --glass: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+  color-scheme: light;
+}
+
+.dark {
+  --surface: #0b1220;
+  --surface-2: rgba(15, 23, 42, 0.72);
+  --ink: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #2dd4bf;
+  --accent-2: #38bdf8;
+  --border: rgba(148, 163, 184, 0.12);
+  --success: #34d399;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --bg-gradient: radial-gradient(1000px 500px at 0% 0%, rgba(45, 212, 191, 0.12) 0%, transparent 50%),
+    radial-gradient(800px 400px at 100% 0%, rgba(56, 189, 248, 0.1) 0%, transparent 45%),
+    linear-gradient(180deg, #070b14 0%, #0b1220 100%);
+  --glass: rgba(15, 23, 42, 0.55);
+  --glass-border: rgba(148, 163, 184, 0.12);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--ink);
+    background: var(--bg-gradient);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  }
+  .glass-hover {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  .glass-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.1);
+  }
+}
+
+/* Recharts tooltip polish */
+.recharts-default-tooltip {
+  border-radius: 12px !important;
+}
