@@ -45,6 +45,7 @@ type SalesCtx = {
   capabilities: DataCapabilities
   reload: (extra?: File[]) => Promise<void>
   extent: { min: string; max: string }
+  source: 'clover' | 'csv' | 'mixed' | 'empty'
   options: {
     products: string[]
     categories: string[]
@@ -95,6 +96,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     grain: 'monthly',
   })
   const [filters, setFiltersState] = useState<DashboardFilters>(defaultFilters)
+  const [source, setSource] = useState<'clover' | 'csv' | 'mixed' | 'empty'>('empty')
 
   const reload = useCallback(async (extra?: File[]) => {
     setLoading(true)
@@ -104,6 +106,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       setLines(data.lines)
       setFiles(data.files)
       setCapabilities(data.capabilities)
+      setSource(data.source)
       if (data.errors.length && !data.lines.length) {
         setError(data.errors.join('; '))
       }
@@ -157,6 +160,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     capabilities,
     reload,
     extent,
+    source,
     options,
     derived,
   }

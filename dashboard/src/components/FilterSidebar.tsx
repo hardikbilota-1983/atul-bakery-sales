@@ -3,6 +3,7 @@ import { useSales } from '@/context/SalesContext'
 import { DATE_PRESET_LABELS } from '@/utils/analytics'
 import type { DatePreset } from '@/types/sales'
 import { Button } from '@/components/ui/Button'
+import { CloverSyncPanel } from '@/components/CloverSyncPanel'
 import { cn } from '@/lib/utils'
 
 function MultiSelect({
@@ -88,6 +89,10 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
           placeholder="Search products…"
           className="h-10 w-full rounded-xl border border-border bg-white/40 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-accent/30 dark:bg-black/20"
         />
+      </div>
+
+      <div className="mb-4">
+        <CloverSyncPanel onSynced={() => reload()} />
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto pr-1">

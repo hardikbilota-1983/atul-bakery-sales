@@ -1,11 +1,13 @@
 import type { DataCapabilities, SalesLine } from '@/types/sales'
 import { parseSalesFile } from '@/services/schemaInfer'
+import { fetchCloverSalesLines } from '@/services/cloverApi'
 
 export type LoadedDataset = {
   lines: SalesLine[]
   files: string[]
   capabilities: DataCapabilities
   errors: string[]
+  source: 'clover' | 'csv' | 'mixed' | 'empty'
 }
 
 export async function fetchManifest(): Promise<string[]> {
@@ -15,7 +17,7 @@ export async function fetchManifest(): Promise<string[]> {
   return json.files ?? []
 }
 
-export async function loadAllSalesData(extraFiles?: File[]): Promise<LoadedDataset> {
+async function loadCsvFiles(extraFiles?: File[]): Promise<{ lines: SalesLine[]; files: string[]; errors: string[] }> {
   const errors: string[] = []
   const all: SalesLine[] = []
   const used: string[] = []
@@ -53,11 +55,66 @@ export async function loadAllSalesData(extraFiles?: File[]): Promise<LoadedDatas
     }
   }
 
+  return { lines: all, files: used, errors }
+}
+
+export async function loadAllSalesData(
+  extraFiles?: File[],
+  opts?: { includeCsvWithClover?: boolean },
+): Promise<LoadedDataset> {
+  const errors: string[] = []
+  let cloverLines: SalesLine[] = []
+
+  try {
+    cloverLines = await fetchCloverSalesLines()
+  } catch (e) {
+    // API server may be down in pure static mode — ignore
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!msg.includes('Failed to fetch') && !msg.includes('404')) {
+      errors.push(`Clover: ${msg}`)
+    }
+  }
+
+  const csv = await loadCsvFiles(extraFiles)
+  errors.push(...csv.errors)
+
+  if (cloverLines.length && !opts?.includeCsvWithClover) {
+    return {
+      lines: cloverLines,
+      files: ['clover-api'],
+      capabilities: detectCapabilities(cloverLines),
+      errors,
+      source: 'clover',
+    }
+  }
+
+  if (cloverLines.length && opts?.includeCsvWithClover) {
+    const lines = [...cloverLines, ...csv.lines]
+    return {
+      lines,
+      files: ['clover-api', ...csv.files],
+      capabilities: detectCapabilities(lines),
+      errors,
+      source: 'mixed',
+    }
+  }
+
+  if (csv.lines.length) {
+    return {
+      lines: csv.lines,
+      files: csv.files,
+      capabilities: detectCapabilities(csv.lines),
+      errors,
+      source: 'csv',
+    }
+  }
+
   return {
-    lines: all,
-    files: used,
-    capabilities: detectCapabilities(all),
-    errors,
+    lines: [],
+    files: [],
+    capabilities: detectCapabilities([]),
+    errors: errors.length ? errors : ['No sales data found'],
+    source: 'empty',
   }
 }
 
@@ -76,7 +133,6 @@ export function detectCapabilities(lines: SalesLine[]): DataCapabilities {
 
   const dates = new Set(lines.map((l) => l.orderDate))
   const uniqueDays = dates.size
-  // If many distinct days relative to span → daily/transaction; else monthly aggregates
   const sorted = [...dates].sort()
   const spanDays =
     sorted.length > 1
@@ -98,7 +154,7 @@ export function detectCapabilities(lines: SalesLine[]): DataCapabilities {
   else if (density > 0.4) grain = 'daily'
 
   return {
-    hasHourly: false, // Items reports never have hour
+    hasHourly: false,
     hasDaily: grain !== 'monthly',
     hasCustomers,
     hasPayments,

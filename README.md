@@ -1,34 +1,20 @@
 # Sales Analytics
 
-## React dashboard (recommended)
+## React dashboard + Clover live sync
 
 ```powershell
 cd dashboard
+copy .env.example .env
+# Add CLOVER_MERCHANT_ID and CLOVER_API_TOKEN
 npm install
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173/**
+Open **http://127.0.0.1:5173/** → sidebar **Clover Sync** → Fetch.
 
-## Deploy on Render (free)
+See [`dashboard/README.md`](./dashboard/README.md) for credentials and Render deploy (Node web service + env vars).
 
-This repo includes [`render.yaml`](./render.yaml) for a free **Static Site**.
+## Data sources
 
-1. Push to GitHub
-2. Go to [render.com](https://dashboard.render.com) → **New** → **Blueprint**
-3. Connect the repo → **Apply**
-
-Manual static site settings:
-
-| Setting | Value |
-|---------|--------|
-| Root Directory | `dashboard` |
-| Build Command | `npm install && npm run build` |
-| Publish Directory | `dist` |
-| Rewrite | `/*` → `/index.html` |
-
-Sales CSVs ship in `dashboard/public/data/` so the hosted build includes your reports.
-
-## Legacy Streamlit
-
-`app.py` is an older prototype; prefer the React dashboard.
+1. **Clover API** (preferred when synced) — daily order line items, payment method, order IDs
+2. **CSV exports** in `dashboard/public/data/` — fallback Items Reports

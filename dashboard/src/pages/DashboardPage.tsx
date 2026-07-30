@@ -40,7 +40,7 @@ import { exportCsv, exportElementPdf, exportElementPng, exportExcel } from '@/ut
 import { ProductCompare } from '@/components/ProductCompare'
 
 export function DashboardPage() {
-  const { loading, error, filtered, derived, capabilities, reload } = useSales()
+  const { loading, error, filtered, derived, capabilities, reload, source } = useSales()
   const { theme, toggle } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
@@ -124,6 +124,9 @@ export function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
               Grain: {capabilities.grain}
+            </span>
+            <span className="rounded-full bg-black/5 px-2.5 py-1 text-[11px] font-medium text-muted dark:bg-white/5">
+              Source: {source}
             </span>
             <Button size="sm" variant="secondary" onClick={() => setShowCompare((v) => !v)}>
               <GitCompare className="h-4 w-4" /> Compare
