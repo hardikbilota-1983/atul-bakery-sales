@@ -15,9 +15,11 @@ import {
   UtensilsCrossed,
   Soup,
   IceCream2,
+  LogOut,
 } from 'lucide-react'
 import { useSales } from '@/context/SalesContext'
 import { useTheme } from '@/context/ThemeContext'
+import { useAuth } from '@/context/AuthContext'
 import { FilterSidebar } from '@/components/FilterSidebar'
 import { KpiCard } from '@/components/KpiCard'
 import { CategoryGroupCard, Top3SellersCard } from '@/components/GroupKpiCards'
@@ -66,6 +68,7 @@ export function DashboardPage() {
     source,
   } = useSales()
   const { theme, toggle } = useTheme()
+  const { user, logout } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
   const [panelOpen, setPanelOpen] = useInsightsOpen(true)
@@ -213,6 +216,15 @@ export function DashboardPage() {
             </details>
             <Button size="icon" variant="ghost" onClick={toggle} title="Toggle theme">
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              title={user?.displayName || 'Sign out'}
+              onClick={() => void logout()}
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign out</span>
             </Button>
             <HelpTip
               title="Top Sellers panel"

@@ -1,26 +1,31 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ThemeProvider } from '@/context/ThemeContext'
-import { SalesProvider } from '@/context/SalesContext'
+import { AuthProvider } from '@/context/AuthContext'
 import { HelpTipProvider } from '@/components/ui/HelpTip'
+import { RequireAuth } from '@/components/RequireAuth'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { ComparePage } from '@/pages/ComparePage'
+import { LoginPage } from '@/pages/LoginPage'
 
 export default function App() {
   return (
     <ThemeProvider>
-      <HelpTipProvider>
-        <SalesProvider>
+      <AuthProvider>
+        <HelpTipProvider>
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/product/:name" element={<ProductDetailPage />} />
-              <Route path="/compare" element={<ComparePage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route element={<RequireAuth />}>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/product/:name" element={<ProductDetailPage />} />
+                <Route path="/compare" element={<ComparePage />} />
+              </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>
-        </SalesProvider>
-      </HelpTipProvider>
+        </HelpTipProvider>
+      </AuthProvider>
     </ThemeProvider>
   )
 }

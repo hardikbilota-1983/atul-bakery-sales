@@ -8,6 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
 import express from 'express'
 import cors from 'cors'
+import passport from 'passport'
 import {
   cloverConfigured,
   readCache,
@@ -27,20 +28,49 @@ import {
   reportRecipients,
 } from './reports.js'
 import { mailConfigured, sendReportEmail } from './mail.js'
+import {
+  authConfigured,
+  configurePassport,
+  createSessionMiddleware,
+  googleConfigured,
+  mountAuthRoutes,
+  requireAuth,
+  seedUsersFromEnv,
+} from './auth.js'
 
 const rootDir = path.resolve(__dirname, '..')
 const distDir = path.join(rootDir, 'dist')
 const PORT = Number(process.env.PORT || 8787)
+const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true'
+
+const seed = seedUsersFromEnv()
+if (seed.seeded) console.log(`[auth] Seeded/updated ${seed.seeded} local user(s) from AUTH_USERS`)
+configurePassport()
 
 const app = express()
-app.use(cors())
+if (isProd) app.set('trust proxy', 1)
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  }),
+)
 app.use(express.json({ limit: '2mb' }))
+app.use(createSessionMiddleware())
+app.use(passport.initialize())
+app.use(passport.session())
+mountAuthRoutes(app)
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, cloverConfigured: cloverConfigured() })
+  res.json({
+    ok: true,
+    cloverConfigured: cloverConfigured(),
+    authConfigured: authConfigured(),
+    googleEnabled: googleConfigured(),
+  })
 })
 
-app.get('/api/clover/status', async (_req, res) => {
+app.get('/api/clover/status', requireAuth, async (_req, res) => {
   const cache = readCache()
   const catalog = readCatalogCache()
   const configured = cloverConfigured()
@@ -76,7 +106,7 @@ app.get('/api/clover/status', async (_req, res) => {
 })
 
 /** Ensure catalog exists (fetch once), return categories + products. */
-app.get('/api/clover/catalog', async (req, res) => {
+app.get('/api/clover/catalog', requireAuth, async (req, res) => {
   try {
     if (!cloverConfigured()) {
       res.status(400).json({ error: 'Clover is not configured.' })
@@ -102,7 +132,7 @@ app.get('/api/clover/catalog', async (req, res) => {
  * return sales lines (all cached days, typically at least today).
  * Runs sequentially to respect Clover rate limits. Falls back to cache on 429.
  */
-app.post('/api/clover/bootstrap', async (_req, res) => {
+app.post('/api/clover/bootstrap', requireAuth, async (_req, res) => {
   try {
     if (!cloverConfigured()) {
       res.status(400).json({
@@ -170,7 +200,7 @@ app.post('/api/clover/bootstrap', async (_req, res) => {
   }
 })
 
-app.get('/api/clover/sales', (_req, res) => {
+app.get('/api/clover/sales', requireAuth, (_req, res) => {
   const cache = readCache()
   if (!cache?.lines) {
     res.status(404).json({ error: 'No Clover sync cache yet.' })
@@ -179,7 +209,7 @@ app.get('/api/clover/sales', (_req, res) => {
   res.json(cache)
 })
 
-app.post('/api/clover/sync', async (req, res) => {
+app.post('/api/clover/sync', requireAuth, async (req, res) => {
   try {
     if (!cloverConfigured()) {
       res.status(400).json({
@@ -363,14 +393,16 @@ app.post('/api/reports/weekly', async (req, res) => {
   }
 })
 
-const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true'
-
 if (isProd) {
   if (!fs.existsSync(distDir)) {
     console.warn(`[warn] dist/ missing at ${distDir} — UI will not load`)
   } else {
     console.log(`[info] serving static from ${distDir}`)
   }
+
+  // Block anonymous access to packaged sales files under /data
+  app.use('/data', requireAuth)
+
   app.use(express.static(distDir))
   // Express 5: bare "*" is invalid and crashes startup — use a middleware fallback
   app.use((req, res, next) => {
@@ -385,5 +417,6 @@ if (isProd) {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Sales API listening on 0.0.0.0:${PORT} (${isProd ? 'production' : 'dev'})`)
   console.log(`Clover configured: ${cloverConfigured()}`)
+  console.log(`Auth configured: ${authConfigured()} (Google: ${googleConfigured()})`)
   console.log(`RENDER=${process.env.RENDER ?? ''} NODE_ENV=${process.env.NODE_ENV ?? ''}`)
 })

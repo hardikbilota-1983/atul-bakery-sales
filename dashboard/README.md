@@ -5,15 +5,41 @@
 ```powershell
 cd dashboard
 copy .env.example .env
-# Edit .env with CLOVER_MERCHANT_ID and CLOVER_API_TOKEN
+# Edit .env with CLOVER_MERCHANT_ID, CLOVER_API_TOKEN, and auth vars
 npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173/
+Open http://127.0.0.1:5173/ → you will be prompted to sign in.
 
 - Left sidebar → **Clover Sync** → pick dates → **Fetch from Clover**
 - Without Clover credentials, the app still loads CSV exports from `public/data/`
+
+### Authentication (required on public domain)
+
+The dashboard and `/api/clover/*` routes require a signed-in session.
+
+**Username / password** — set in `.env`:
+
+```
+SESSION_SECRET=a-long-random-string
+AUTH_USERS=owner:YourStrongPassword
+```
+
+**Google sign-in** (optional) — create an OAuth 2.0 Client ID (Web) in Google Cloud Console:
+
+1. Authorized JavaScript origins: `http://127.0.0.1:5173` (local) and your Render URL
+2. Authorized redirect URI: `http://127.0.0.1:5173/api/auth/google/callback` (local) or `https://YOUR-SERVICE.onrender.com/api/auth/google/callback`
+3. Set env:
+
+```
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_CALLBACK_URL=http://127.0.0.1:5173/api/auth/google/callback
+AUTH_ALLOWED_EMAILS=you@gmail.com,partner@gmail.com
+```
+
+Only emails listed in `AUTH_ALLOWED_EMAILS` can sign in with Google. There is no public self-registration.
 
 ### Clover credentials
 
@@ -37,11 +63,12 @@ Static hosting cannot keep API secrets. This app uses a **Node** service:
 
 1. Push repo to GitHub
 2. Render → **Blueprint** (uses root `render.yaml`) **or** New Web Service
-3. Set env vars: `CLOVER_MERCHANT_ID`, `CLOVER_API_TOKEN`
-4. Build: `npm install && npm run build` · Start: `npm start` · Root: `dashboard`
+3. Set env vars: `CLOVER_MERCHANT_ID`, `CLOVER_API_TOKEN`, `SESSION_SECRET`, `AUTH_USERS`
+4. Optional Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `AUTH_ALLOWED_EMAILS`
+5. Build: `npm install && npm run build` · Start: `npm start` · Root: `dashboard`
 
 Free web services sleep when idle; the first request after sleep can take ~30s.
 
 ## Stack
 
-React · Vite · Express · Clover Orders API · Recharts · Tailwind
+React · Vite · Express · Passport (local + Google) · Clover Orders API · Recharts · Tailwind

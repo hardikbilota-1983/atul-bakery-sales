@@ -12,7 +12,7 @@ npm run dev
 
 Open **http://127.0.0.1:5173/** → sidebar **Clover Sync** → Fetch.
 
-See [`dashboard/README.md`](./dashboard/README.md) for credentials and Render deploy (Node web service + env vars).
+See [`dashboard/README.md`](./dashboard/README.md) for credentials, **login / Google auth**, and Render deploy (Node web service + env vars).
 
 ## Data sources
 

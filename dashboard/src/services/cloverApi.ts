@@ -54,7 +54,7 @@ export type CloverBootstrap = {
 }
 
 export async function fetchCloverStatus(): Promise<CloverStatus> {
-  const res = await fetch('/api/clover/status')
+  const res = await fetch('/api/clover/status', { credentials: 'include' })
   if (!res.ok) throw new Error(`Status ${res.status}`)
   return res.json()
 }
@@ -62,6 +62,7 @@ export async function fetchCloverStatus(): Promise<CloverStatus> {
 export async function syncClover(startDate: string, endDate: string): Promise<CloverSyncResult> {
   const res = await fetch('/api/clover/sync', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ startDate, endDate }),
   })
@@ -71,14 +72,16 @@ export async function syncClover(startDate: string, endDate: string): Promise<Cl
 }
 
 export async function bootstrapClover(): Promise<CloverBootstrap> {
-  const res = await fetch('/api/clover/bootstrap', { method: 'POST' })
+  const res = await fetch('/api/clover/bootstrap', { method: 'POST', credentials: 'include' })
   const json = (await res.json()) as CloverBootstrap & { error?: string }
   if (!res.ok) throw new Error(json.error || `Bootstrap failed (${res.status})`)
   return json
 }
 
 export async function fetchCloverCatalog(force = false): Promise<CloverCatalog> {
-  const res = await fetch(`/api/clover/catalog${force ? '?force=1' : ''}`)
+  const res = await fetch(`/api/clover/catalog${force ? '?force=1' : ''}`, {
+    credentials: 'include',
+  })
   const json = (await res.json()) as CloverCatalog & { error?: string }
   if (!res.ok) throw new Error(json.error || `Catalog failed (${res.status})`)
   return json
@@ -91,7 +94,7 @@ export async function fetchCloverSalesCache(): Promise<{
   lineCount?: number
   orderCount?: number
 }> {
-  const res = await fetch('/api/clover/sales')
+  const res = await fetch('/api/clover/sales', { credentials: 'include' })
   if (res.status === 404) return { lines: [], cachedDays: [] }
   if (!res.ok) throw new Error(`Clover sales ${res.status}`)
   const json = (await res.json()) as {
