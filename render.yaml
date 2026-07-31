@@ -22,3 +22,17 @@ services:
         sync: false
       - key: CLOVER_API_TOKEN
         sync: false
+      - key: REPORT_ENABLED
+        value: "false"
+      - key: CRON_SECRET
+        sync: false
+      - key: GMAIL_USER
+        value: atulbakeryhillside@gmail.com
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: REPORT_FROM
+        value: atulbakeryhillside@gmail.com
+      - key: REPORT_TO
+        sync: false
+      - key: REPORT_CATEGORIES
+        sync: false

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronLeft, ChevronRight, Sparkles, Trophy } from 'lucide-react'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { HelpLabel, HelpTip } from '@/components/ui/HelpTip'
 import type { CategoryTopSellers } from '@/types/sales'
 
 function money(n: number) {
@@ -56,11 +57,25 @@ export function InsightsSidePanel({
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Trophy className="h-4 w-4 text-accent" />
-                <h2 className="font-display text-base font-semibold text-ink">Top Sellers</h2>
+                <h2 className="font-display text-base font-semibold text-ink">
+                  <HelpLabel
+                    helpTitle="Top Sellers"
+                    help="Top 3 items by revenue in each watched category for the current date filter. Empty categories are hidden. Change the date filter to refresh."
+                  >
+                    Top Sellers
+                  </HelpLabel>
+                </h2>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => onOpenChange(false)} title="Hide panel">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+              <HelpTip title="Hide panel" content="Collapse this panel. Re-open anytime from the Top Sellers button or the right-edge tab.">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onOpenChange(false)}
+                  aria-label="Hide panel"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </HelpTip>
             </div>
             <p className="mb-3 text-[11px] text-muted">
               Top 3 by revenue in each watched category (current filters). Empty categories are hidden.

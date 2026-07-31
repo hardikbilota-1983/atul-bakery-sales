@@ -1,0 +1,73 @@
+# Weekly franchisor sales report (Sunday ~11:59 PM Eastern)
+# Hits Render API; wakes free-tier service if asleep.
+#
+# Secrets (GitHub → Settings → Secrets):
+#   REPORT_APP_URL  e.g. https://atul-bakery-sales.onrender.com
+#   CRON_SECRET     same value as Render CRON_SECRET
+#
+# Manual run: Actions → Weekly franchisor report → Run workflow
+# Optional input force=true to send outside the Sunday window / re-send.
+
+name: Weekly franchisor report
+
+on:
+  schedule:
+    # Monday 03:00 and 04:00 UTC ≈ Sunday 11pm Eastern (EDT/EST coverage)
+    - cron: '0 3,4 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force send (ignore schedule window / already-sent)'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run only (no email)'
+        type: boolean
+        default: false
+
+jobs:
+  send-weekly-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Wake app + run weekly report
+        env:
+          REPORT_APP_URL: ${{ secrets.REPORT_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          FORCE: ${{ inputs.force || false }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+          if [ -z "${REPORT_APP_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Missing REPORT_APP_URL or CRON_SECRET secrets"
+            exit 1
+          fi
+          BASE="${REPORT_APP_URL%/}"
+          QS=""
+          if [ "$DRY_RUN" = "true" ]; then QS="${QS}&dryRun=1"; fi
+          if [ "$FORCE" = "true" ]; then QS="${QS}&force=1"; fi
+          QS="${QS#&}"
+          URL="${BASE}/api/reports/weekly"
+          if [ -n "$QS" ]; then URL="${URL}?${QS}"; fi
+
+          echo "POST $URL"
+          # Cold start may take a while on free Render
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /tmp/weekly-report.json -w "%{http_code}" \
+              -X POST "$URL" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              -H "Content-Type: application/json" \
+              --max-time 300) || code="000"
+            echo "Attempt $i → HTTP $code"
+            if [ "$code" != "000" ] && [ "$code" != "502" ] && [ "$code" != "503" ] && [ "$code" != "524" ]; then
+              break
+            fi
+            sleep 20
+          done
+
+          cat /tmp/weekly-report.json
+          echo
+          if [ "$code" != "200" ]; then
+            echo "Report endpoint failed with HTTP $code"
+            exit 1
+          fi

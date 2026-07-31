@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CategoryTopItem } from '@/types/sales'
 import type { CategoryGroupBreakdown } from '@/utils/analytics'
+import { HelpLabel } from '@/components/ui/HelpTip'
 
 function money(n: number) {
   return new Intl.NumberFormat('en-US', {
@@ -27,12 +28,14 @@ export function Top3SellersCard({
   totalRevenue,
   icon: Icon,
   delay = 0,
+  help = 'Combined revenue of your 3 best-selling items in the current date filter. Change the date filter to compare another period.',
 }: {
   title: string
   items: CategoryTopItem[]
   totalRevenue: number
   icon: LucideIcon
   delay?: number
+  help?: string
 }) {
   return (
     <motion.div
@@ -43,7 +46,11 @@ export function Top3SellersCard({
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">{title}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+            <HelpLabel help={help} helpTitle={title}>
+              {title}
+            </HelpLabel>
+          </p>
           <p className="mt-1 font-display text-2xl font-semibold text-ink md:text-[1.65rem]">
             {money(totalRevenue)}
           </p>
@@ -80,12 +87,14 @@ export function CategoryGroupCard({
   icon: Icon,
   delay = 0,
   accentClass = 'bg-accent/10 text-accent',
+  help,
 }: {
   title: string
   group: CategoryGroupBreakdown
   icon: LucideIcon
   delay?: number
   accentClass?: string
+  help?: string
 }) {
   return (
     <motion.div
@@ -96,7 +105,15 @@ export function CategoryGroupCard({
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">{title}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+            {help ? (
+              <HelpLabel help={help} helpTitle={title}>
+                {title}
+              </HelpLabel>
+            ) : (
+              title
+            )}
+          </p>
           <p className="mt-1 font-display text-2xl font-semibold text-ink md:text-[1.65rem]">
             {money(group.totalRevenue)}
           </p>

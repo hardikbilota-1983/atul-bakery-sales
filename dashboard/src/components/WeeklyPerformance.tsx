@@ -34,6 +34,7 @@ import type {
   WeekScorecard,
 } from '@/types/sales'
 import { format, parseISO } from 'date-fns'
+import { HelpLabel } from '@/components/ui/HelpTip'
 
 function money(n: number) {
   return new Intl.NumberFormat('en-US', {
@@ -304,7 +305,14 @@ export function WeeklyPerformance({ lines, filters, dataMin, dataMax }: Props) {
             <CalendarRange className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="font-display text-lg font-semibold text-ink">Weekly Performance</h2>
+            <h2 className="font-display text-lg font-semibold text-ink">
+              <HelpLabel
+                helpTitle="Weekly Performance"
+                help="Choose This Month in the date filter for full week columns. Use brand toggles (Chennai / Punjab / Harvy’s), then click a category row to see top items by week."
+              >
+                Weekly Performance
+              </HelpLabel>
+            </h2>
             <p className="text-[11px] text-muted">
               Calendar weeks in {monthLabel} · Mon–Sun (Eastern). Select This Month in filters for
               full coverage.

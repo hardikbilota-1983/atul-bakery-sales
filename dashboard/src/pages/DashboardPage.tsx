@@ -49,6 +49,7 @@ import { exportCsv, exportElementPdf, exportElementPng, exportExcel } from '@/ut
 import { ProductCompare } from '@/components/ProductCompare'
 import { InsightsSidePanel, useInsightsOpen } from '@/components/InsightsSidePanel'
 import { WeeklyPerformance } from '@/components/WeeklyPerformance'
+import { HelpTip } from '@/components/ui/HelpTip'
 
 export function DashboardPage() {
   const {
@@ -213,15 +214,19 @@ export function DashboardPage() {
             <Button size="icon" variant="ghost" onClick={toggle} title="Toggle theme">
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
-            <Button
-              size="sm"
-              variant={panelOpen ? 'secondary' : 'outline'}
-              className="hidden lg:inline-flex"
-              onClick={() => setPanelOpen(!panelOpen)}
-              title="Toggle Top Sellers panel"
+            <HelpTip
+              title="Top Sellers panel"
+              content="Shows or hides the right panel with top 3 items in each watched food category for the current filters."
             >
-              Top Sellers
-            </Button>
+              <Button
+                size="sm"
+                variant={panelOpen ? 'secondary' : 'outline'}
+                className="hidden lg:inline-flex"
+                onClick={() => setPanelOpen(!panelOpen)}
+              >
+                Top Sellers
+              </Button>
+            </HelpTip>
             <Link to="/compare">
               <Button size="sm" variant="outline">
                 Full compare
@@ -251,6 +256,7 @@ export function DashboardPage() {
               growth={kpis.revenueGrowthPct}
               spark={kpis.sparkRevenue}
               priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
+              help="Total paid sales in the current date filter. Change the date filter on the left to compare another day or period."
               delay={0}
             />
             <KpiCard
@@ -261,6 +267,7 @@ export function DashboardPage() {
               growth={kpis.paidOrdersGrowthPct}
               spark={kpis.sparkOrders}
               priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
+              help="Count of unique paid Clover orders. Open tickets with no payment are excluded."
               delay={0.05}
             />
             <KpiCard
@@ -271,6 +278,7 @@ export function DashboardPage() {
               growth={kpis.averageOrderSizeGrowthPct}
               spark={kpis.sparkAov}
               priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
+              help="Net sales ÷ paid orders. Use this to see if ticket size is rising or falling vs the prior period."
               delay={0.1}
             />
             <KpiCard
@@ -281,6 +289,7 @@ export function DashboardPage() {
               growth={kpis.quantityGrowthPct}
               spark={kpis.sparkQuantity}
               priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
+              help="Total quantity of line items sold in the selected date range."
               delay={0.15}
             />
           </div>
@@ -298,13 +307,21 @@ export function DashboardPage() {
               group={chennai}
               icon={UtensilsCrossed}
               delay={0.25}
+              help="Combined revenue for Dosas, Idli, South Indian snacks, and Specialty Dosas. Lines below show each category."
             />
-            <CategoryGroupCard title="PCE - Punjab" group={punjab} icon={Soup} delay={0.3} />
+            <CategoryGroupCard
+              title="PCE - Punjab"
+              group={punjab}
+              icon={Soup}
+              delay={0.3}
+              help="Combined revenue for Chaaps, Momos, and Wraps. Lines below show each category."
+            />
             <CategoryGroupCard
               title="Harvy's Icecream"
               group={harvys}
               icon={IceCream2}
               delay={0.35}
+              help="Combined revenue for Deluxe, Shakes, Premium, and Traditional ice cream. Lines below show each category."
             />
           </div>
 

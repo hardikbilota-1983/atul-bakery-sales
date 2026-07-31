@@ -4,6 +4,7 @@ import { DATE_PRESET_LABELS } from '@/utils/analytics'
 import type { DatePreset } from '@/types/sales'
 import { Button } from '@/components/ui/Button'
 import { CloverSyncPanel } from '@/components/CloverSyncPanel'
+import { HelpLabel, HelpTip } from '@/components/ui/HelpTip'
 import { cn } from '@/lib/utils'
 
 function MultiSelect({
@@ -75,7 +76,14 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
     <aside className="glass flex h-full flex-col rounded-2xl p-4">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="font-display text-lg font-semibold text-ink">Filters</h2>
+          <h2 className="font-display text-lg font-semibold text-ink">
+            <HelpLabel
+              helpTitle="Filters"
+              help="Narrow the whole dashboard by date, category, or product. Start with Today or This Month, then refine with Category if needed."
+            >
+              Filters
+            </HelpLabel>
+          </h2>
           <p className="text-[11px] text-muted">
             {fromCache ? 'Cached' : 'Live'} · {dayKey ?? extent.min}
             {extent.min !== extent.max ? ` → ${extent.max}` : ''}
@@ -87,9 +95,14 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
           )}
         </div>
         <div className="flex gap-1">
-          <Button size="icon" variant="ghost" onClick={resetFilters} title="Reset">
-            <RotateCcw className="h-4 w-4" />
-          </Button>
+          <HelpTip
+            title="Reset filters"
+            content="Clears date, category, product, and search back to Today with no extra filters."
+          >
+            <Button size="icon" variant="ghost" onClick={resetFilters} aria-label="Reset filters">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          </HelpTip>
           {onClose && (
             <Button size="icon" variant="ghost" onClick={onClose} className="lg:hidden">
               <X className="h-4 w-4" />
@@ -124,7 +137,12 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
       <div className="flex-1 space-y-4 overflow-y-auto pr-1">
         <div>
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted">
-            Date filter
+            <HelpLabel
+              helpTitle="Date filter"
+              help="Pick a range (Today, Last 7 Days, This Month…). Past dates load from Clover automatically — wait for the loading banner if it appears."
+            >
+              Date filter
+            </HelpLabel>
           </label>
           <p className="mb-1.5 text-[10px] text-muted">
             Selecting a past range loads those days from Clover automatically (may take a minute for

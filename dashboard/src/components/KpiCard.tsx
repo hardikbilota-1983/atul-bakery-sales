@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { cn, formatPct } from '@/lib/utils'
+import { HelpLabel } from '@/components/ui/HelpTip'
 
 function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {
   const mv = useMotionValue(0)
@@ -28,6 +29,8 @@ type Props = {
   delay?: number
   /** e.g. "vs prior" or "vs prior (same time)" */
   priorLabel?: string
+  /** Hover helper explaining the metric and what to do next. */
+  help?: string
 }
 
 export function KpiCard({
@@ -40,6 +43,7 @@ export function KpiCard({
   subtitle,
   delay = 0,
   priorLabel = 'vs prior',
+  help,
 }: Props) {
   const TrendIcon =
     growth == null || growth === 0 ? Minus : growth > 0 ? ArrowUpRight : ArrowDownRight
@@ -61,7 +65,15 @@ export function KpiCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">{title}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+            {help ? (
+              <HelpLabel help={help} helpTitle={title}>
+                {title}
+              </HelpLabel>
+            ) : (
+              title
+            )}
+          </p>
           <p className="mt-1 truncate font-display text-2xl font-semibold text-ink md:text-[1.65rem]">
             {subtitle ? (
               <span title={subtitle}>{subtitle}</span>

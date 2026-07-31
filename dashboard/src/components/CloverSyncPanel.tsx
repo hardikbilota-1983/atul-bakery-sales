@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CloudDownload, Loader2, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
 import { fetchCloverStatus, syncClover, type CloverStatus } from '@/services/cloverApi'
 import { Button } from '@/components/ui/Button'
+import { HelpLabel, HelpTip } from '@/components/ui/HelpTip'
 import { cn } from '@/lib/utils'
 import { dayKeyInZone, MERCHANT_TZ } from '@/utils/timezone'
 
@@ -69,11 +70,28 @@ export function CloverSyncPanel({ onSynced }: Props) {
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <CloudDownload className="h-4 w-4 text-accent" />
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink">Clover Sync</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink">
+            <HelpLabel
+              helpTitle="Clover Sync"
+              help="Pulls paid orders from Clover into this app. Set From/To, then click Fetch — changing dates alone does nothing until you fetch."
+            >
+              Clover Sync
+            </HelpLabel>
+          </p>
         </div>
-        <Button size="icon" variant="ghost" onClick={() => void refreshStatus()} title="Refresh status">
-          <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-        </Button>
+        <HelpTip
+          title="Refresh status"
+          content="Re-checks Clover connection and cache status without downloading sales."
+        >
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => void refreshStatus()}
+            aria-label="Refresh status"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+          </Button>
+        </HelpTip>
       </div>
 
       {loading ? (
@@ -112,7 +130,12 @@ export function CloverSyncPanel({ onSynced }: Props) {
           )}
 
           <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-            Fetch range (pull from Clover)
+            <HelpLabel
+              helpTitle="Fetch range"
+              help="Set From and To, then click Fetch from Clover. Prefer Today or Last 7 Days to avoid rate limits."
+            >
+              Fetch range (pull from Clover)
+            </HelpLabel>
           </p>
           <div className="mb-2 grid grid-cols-2 gap-2">
             <label className="text-[10px] text-muted">

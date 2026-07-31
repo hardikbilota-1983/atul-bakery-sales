@@ -19,6 +19,14 @@ import {
   localDayKey,
 } from './clover.js'
 import { dayBoundsInZone, dayKeyInZone } from './timezone.js'
+import {
+  buildWeeklyReport,
+  isWeeklySendWindow,
+  readLastSent,
+  writeLastSent,
+  reportRecipients,
+} from './reports.js'
+import { mailConfigured, sendReportEmail } from './mail.js'
 
 const rootDir = path.resolve(__dirname, '..')
 const distDir = path.join(rootDir, 'dist')
@@ -220,6 +228,137 @@ app.post('/api/clover/sync', async (req, res) => {
       cachedDays: result.cachedDays,
     })
   } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+function authorizeCron(req) {
+  const secret = process.env.CRON_SECRET?.trim()
+  if (!secret) return { ok: false, status: 503, error: 'CRON_SECRET is not configured on the server.' }
+  const header = req.headers.authorization || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  const alt = String(req.headers['x-cron-secret'] || '').trim()
+  if (token !== secret && alt !== secret) {
+    return { ok: false, status: 401, error: 'Unauthorized' }
+  }
+  return { ok: true }
+}
+
+/**
+ * Weekly franchisor report: sync Mon–Sun ET, email HTML + CSV via Resend.
+ * Query: dryRun=1 (no send), force=1 (skip schedule/window + already-sent guards)
+ */
+app.post('/api/reports/weekly', async (req, res) => {
+  try {
+    const auth = authorizeCron(req)
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error })
+      return
+    }
+
+    const dryRun = req.query.dryRun === '1' || req.body?.dryRun === true
+    const force = req.query.force === '1' || req.body?.force === true
+    const enabled = String(process.env.REPORT_ENABLED || '').toLowerCase() === 'true'
+
+    if (!enabled && !dryRun) {
+      res.status(503).json({
+        error: 'Weekly report is disabled. Set REPORT_ENABLED=true (or use dryRun=1).',
+      })
+      return
+    }
+
+    if (!force && !dryRun && !isWeeklySendWindow()) {
+      res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: 'Outside Sunday 23:00+ / Monday <05:00 Eastern send window. Use force=1 to override.',
+      })
+      return
+    }
+
+    const report = await buildWeeklyReport()
+    const last = readLastSent()
+    if (!force && !dryRun && last?.weekKey === report.week.weekKey) {
+      res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: `Already sent for week ${report.week.weekKey}`,
+        weekKey: report.week.weekKey,
+        sentAt: last.sentAt,
+      })
+      return
+    }
+
+    if (dryRun) {
+      res.json({
+        ok: true,
+        dryRun: true,
+        weekKey: report.week.weekKey,
+        periodLabel: report.week.periodLabel,
+        store: report.store,
+        totalRevenue: report.totalRevenue,
+        paidOrders: report.paidOrders,
+        totalQuantity: report.totalQuantity,
+        lineCount: report.lineCount,
+        categories: report.categoryRows,
+        topItems: report.topItems,
+        recipients: reportRecipients(),
+        mailConfigured: mailConfigured(),
+        htmlPreview: report.html.slice(0, 2000),
+        csvFilename: report.csvFilename,
+        csvBytes: Buffer.byteLength(report.csv, 'utf8'),
+      })
+      return
+    }
+
+    if (!mailConfigured()) {
+      res.status(503).json({
+        error: 'GMAIL_USER (or REPORT_FROM) and GMAIL_APP_PASSWORD are required to send.',
+      })
+      return
+    }
+    const to = reportRecipients()
+    if (!to.length) {
+      res.status(400).json({ error: 'REPORT_TO has no email addresses.' })
+      return
+    }
+
+    const subject = `Atul Bakery (${report.store}) weekly sales · ${report.week.periodLabel}`
+    const mailResult = await sendReportEmail({
+      to,
+      subject,
+      html: report.html,
+      attachments: [
+        {
+          filename: report.csvFilename,
+          content: report.csv,
+          contentType: 'text/csv',
+        },
+      ],
+    })
+
+    writeLastSent({
+      weekKey: report.week.weekKey,
+      periodLabel: report.week.periodLabel,
+      sentAt: new Date().toISOString(),
+      to,
+      messageId: mailResult.id,
+      totalRevenue: report.totalRevenue,
+    })
+
+    res.json({
+      ok: true,
+      sent: true,
+      weekKey: report.week.weekKey,
+      periodLabel: report.week.periodLabel,
+      to,
+      totalRevenue: report.totalRevenue,
+      paidOrders: report.paidOrders,
+      totalQuantity: report.totalQuantity,
+      messageId: mailResult.id,
+    })
+  } catch (e) {
+    console.error('[reports/weekly]', e)
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
   }
 })
