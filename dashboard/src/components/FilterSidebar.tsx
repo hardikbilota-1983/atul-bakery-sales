@@ -103,14 +103,26 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
       </div>
 
       <div className="mb-4">
-        <CloverSyncPanel onSynced={() => reload()} />
+        <CloverSyncPanel
+          onSynced={async (range) => {
+            await reload()
+            setFilters({
+              datePreset: 'custom',
+              customStart: range.start,
+              customEnd: range.end,
+            })
+          }}
+        />
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto pr-1">
         <div>
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted">
-            Date Range
+            Date filter (dashboard view)
           </label>
+          <p className="mb-1.5 text-[10px] text-muted">
+            Filters already-loaded data. Use Fetch above first if the range is not cached yet.
+          </p>
           <div className="grid grid-cols-2 gap-1.5">
             {(Object.keys(DATE_PRESET_LABELS) as DatePreset[]).map((p) => (
               <button

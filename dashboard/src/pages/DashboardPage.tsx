@@ -4,10 +4,7 @@ import {
   DollarSign,
   Package,
   ShoppingCart,
-  Layers,
   TrendingUp,
-  TrendingDown,
-  Boxes,
   Receipt,
   Menu,
   Moon,
@@ -15,13 +12,17 @@ import {
   Download,
   GitCompare,
   RefreshCw,
+  UtensilsCrossed,
+  Soup,
+  IceCream2,
 } from 'lucide-react'
 import { useSales } from '@/context/SalesContext'
 import { useTheme } from '@/context/ThemeContext'
 import { FilterSidebar } from '@/components/FilterSidebar'
 import { KpiCard } from '@/components/KpiCard'
+import { CategoryGroupCard, Top3SellersCard } from '@/components/GroupKpiCards'
 import { DataTable } from '@/components/DataTable'
-import { AbcTable, InsightsPanel, ProductRankCards } from '@/components/ProductCards'
+import { AbcTable, ProductRankCards } from '@/components/ProductCards'
 import {
   CategoryDonut,
   CumulativeRevenueChart,
@@ -35,19 +36,43 @@ import {
 } from '@/components/charts/Charts'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency, formatNumber } from '@/lib/utils'
-import { abcClassify } from '@/utils/analytics'
+import {
+  abcClassify,
+  categoryGroupRevenue,
+  HARVYS_ICE_CREAM_CATEGORIES,
+  PCE_CHENNAI_CATEGORIES,
+  PCE_PUNJAB_CATEGORIES,
+  topProductsByRevenue,
+  topSellersByWatchCategories,
+} from '@/utils/analytics'
 import { exportCsv, exportElementPdf, exportElementPng, exportExcel } from '@/utils/export'
 import { ProductCompare } from '@/components/ProductCompare'
+import { InsightsSidePanel, useInsightsOpen } from '@/components/InsightsSidePanel'
 
 export function DashboardPage() {
   const { loading, error, filtered, derived, capabilities, reload, source } = useSales()
   const { theme, toggle } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
+  const [panelOpen, setPanelOpen] = useInsightsOpen(true)
   const exportRef = useRef<HTMLDivElement>(null)
   const { kpis, products, categories, monthly, insights } = derived
 
   const abc = useMemo(() => abcClassify(products), [products])
+  const categoryLeaders = useMemo(() => topSellersByWatchCategories(filtered), [filtered])
+  const top3 = useMemo(() => topProductsByRevenue(filtered, 3), [filtered])
+  const chennai = useMemo(
+    () => categoryGroupRevenue(filtered, PCE_CHENNAI_CATEGORIES),
+    [filtered],
+  )
+  const punjab = useMemo(
+    () => categoryGroupRevenue(filtered, PCE_PUNJAB_CATEGORIES),
+    [filtered],
+  )
+  const harvys = useMemo(
+    () => categoryGroupRevenue(filtered, HARVYS_ICE_CREAM_CATEGORIES),
+    [filtered],
+  )
   const top = products.slice(0, 6)
   const bottom = [...products].reverse().slice(0, 6)
 
@@ -78,15 +103,13 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-[1600px] gap-4 p-3 md:p-5">
-      {/* Desktop sidebar */}
+    <div className="mx-auto flex min-h-screen max-w-[1800px] gap-4 p-3 md:p-5">
       <div className="hidden w-72 shrink-0 lg:block">
         <div className="sticky top-5 h-[calc(100vh-2.5rem)]">
           <FilterSidebar />
         </div>
       </div>
 
-      {/* Mobile sidebar */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <button
@@ -177,6 +200,15 @@ export function DashboardPage() {
             <Button size="icon" variant="ghost" onClick={toggle} title="Toggle theme">
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
+            <Button
+              size="sm"
+              variant={panelOpen ? 'secondary' : 'outline'}
+              className="hidden lg:inline-flex"
+              onClick={() => setPanelOpen(!panelOpen)}
+              title="Toggle Top Sellers panel"
+            >
+              Top Sellers
+            </Button>
             <Link to="/compare">
               <Button size="sm" variant="outline">
                 Full compare
@@ -227,40 +259,30 @@ export function DashboardPage() {
               priorLabel={kpis.priorSameTime ? 'vs prior (same time)' : 'vs prior'}
               delay={0.15}
             />
-            <KpiCard
-              title="Highest Selling"
-              value={0}
-              format={() => ''}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Top3SellersCard
+              title="Top 3 Highest Selling"
+              items={top3.items}
+              totalRevenue={top3.totalRevenue}
               icon={TrendingUp}
-              subtitle={kpis.highestItem}
-              growth={products[0]?.growthPct}
               delay={0.2}
             />
-            <KpiCard
-              title="Lowest Selling"
-              value={0}
-              format={() => ''}
-              icon={TrendingDown}
-              subtitle={kpis.lowestItem}
+            <CategoryGroupCard
+              title="PCE - Chennai"
+              group={chennai}
+              icon={UtensilsCrossed}
               delay={0.25}
             />
-            <KpiCard
-              title="Products"
-              value={kpis.productCount}
-              format={(n) => formatNumber(n)}
-              icon={Boxes}
-              delay={0.3}
-            />
-            <KpiCard
-              title="Categories"
-              value={kpis.categoryCount}
-              format={(n) => formatNumber(n)}
-              icon={Layers}
+            <CategoryGroupCard title="PCE - Punjab" group={punjab} icon={Soup} delay={0.3} />
+            <CategoryGroupCard
+              title="Harvy's Icecream"
+              group={harvys}
+              icon={IceCream2}
               delay={0.35}
             />
           </div>
-
-          <InsightsPanel insights={insights} />
 
           {showCompare && <ProductCompare products={products} />}
 
@@ -298,6 +320,13 @@ export function DashboardPage() {
           <DataTable lines={filtered} />
         </div>
       </main>
+
+      <InsightsSidePanel
+        insights={insights}
+        categoryLeaders={categoryLeaders}
+        open={panelOpen}
+        onOpenChange={setPanelOpen}
+      />
     </div>
   )
 }

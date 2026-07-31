@@ -16,6 +16,8 @@ services:
         value: https://api.clover.com
       - key: CLOVER_STORE_NAME
         value: Hillside
+      - key: CLOVER_TIMEZONE
+        value: America/New_York
       - key: CLOVER_MERCHANT_ID
         sync: false
       - key: CLOVER_API_TOKEN

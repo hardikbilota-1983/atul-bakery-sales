@@ -15,9 +15,10 @@ import {
   syncCloverSales,
   ensureTodaySales,
   ensureCatalog,
-  testConnection,
+  cachedTestConnection,
   localDayKey,
 } from './clover.js'
+import { dayBoundsInZone, dayKeyInZone } from './timezone.js'
 
 const rootDir = path.resolve(__dirname, '..')
 const distDir = path.join(rootDir, 'dist')
@@ -40,7 +41,7 @@ app.get('/api/clover/status', async (_req, res) => {
   let error = null
   if (configured) {
     try {
-      merchant = await testConnection()
+      merchant = await cachedTestConnection()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
@@ -91,6 +92,7 @@ app.get('/api/clover/catalog', async (req, res) => {
 /**
  * App bootstrap: ensure today's sales are cached, ensure catalog exists,
  * return sales lines (all cached days, typically at least today).
+ * Runs sequentially to respect Clover rate limits. Falls back to cache on 429.
  */
 app.post('/api/clover/bootstrap', async (_req, res) => {
   try {
@@ -102,10 +104,40 @@ app.post('/api/clover/bootstrap', async (_req, res) => {
       return
     }
 
-    const [sales, catalog] = await Promise.all([
-      ensureTodaySales(),
-      ensureCatalog(),
-    ])
+    let rateLimited = false
+    let catalog
+    try {
+      catalog = await ensureCatalog()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const cachedCat = readCatalogCache()
+      if (cachedCat?.categories?.length) {
+        catalog = { ...cachedCat, fromCache: true }
+        rateLimited = /429/.test(msg)
+      } else {
+        throw e
+      }
+    }
+
+    let sales
+    try {
+      sales = await ensureTodaySales()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const cache = readCache()
+      if (cache?.lines?.length) {
+        const dayKey = localDayKey()
+        sales = {
+          ...cache,
+          fromCache: true,
+          dayKey,
+          todayLineCount: cache.lines.filter((l) => l.orderDate === dayKey).length,
+        }
+        rateLimited = rateLimited || /429/.test(msg)
+      } else {
+        throw e
+      }
+    }
 
     res.json({
       ok: true,
@@ -116,6 +148,7 @@ app.post('/api/clover/bootstrap', async (_req, res) => {
       orderCount: sales.orderCount,
       lineCount: sales.lineCount,
       lines: sales.lines,
+      rateLimited: rateLimited || undefined,
       catalog: {
         fromCache: catalog.fromCache,
         categories: catalog.categories,
@@ -147,23 +180,23 @@ app.post('/api/clover/sync', async (req, res) => {
       return
     }
 
-    const end = req.body?.endDate ? new Date(req.body.endDate) : new Date()
-    const start = req.body?.startDate
-      ? new Date(req.body.startDate)
-      : new Date(end.getTime() - 90 * 86400000)
+    const endKey = String(req.body?.endDate || dayKeyInZone()).slice(0, 10)
+    const startKey = String(
+      req.body?.startDate ||
+        dayKeyInZone(new Date(dayBoundsInZone(endKey).start.getTime() - 90 * 86400000)),
+    ).slice(0, 10)
 
-    start.setHours(0, 0, 0, 0)
-    end.setHours(23, 59, 59, 999)
-
-    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startKey) || !/^\d{4}-\d{2}-\d{2}$/.test(endKey)) {
       res.status(400).json({ error: 'Invalid startDate or endDate' })
       return
     }
-    if (start > end) {
+    if (startKey > endKey) {
       res.status(400).json({ error: 'startDate must be before endDate' })
       return
     }
 
+    const { start } = dayBoundsInZone(startKey)
+    const { end } = dayBoundsInZone(endKey)
     const maxSpan = 370 * 86400000
     if (end.getTime() - start.getTime() > maxSpan) {
       res.status(400).json({ error: 'Sync range cannot exceed ~1 year. Split into smaller ranges.' })
@@ -172,7 +205,7 @@ app.post('/api/clover/sync', async (req, res) => {
 
     const result = await syncCloverSales({
       startMs: start.getTime(),
-      endMs: end.getTime(),
+      endMs: Math.min(end.getTime(), Date.now()),
     })
 
     res.json({

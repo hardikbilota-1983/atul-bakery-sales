@@ -66,6 +66,17 @@ export type CategoryAgg = {
   contributionPct: number
 }
 
+export type CategoryTopItem = {
+  productName: string
+  quantity: number
+  revenue: number
+}
+
+export type CategoryTopSellers = {
+  category: string
+  items: CategoryTopItem[]
+}
+
 export type PeriodPoint = {
   period: string
   label: string

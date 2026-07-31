@@ -12,6 +12,7 @@ import {
 import type {
   AbcRow,
   CategoryAgg,
+  CategoryTopSellers,
   DashboardFilters,
   DatePreset,
   Insight,
@@ -21,59 +22,63 @@ import type {
   SalesLine,
   TrendGrain,
 } from '@/types/sales'
+import { dayBoundsInZone, dayKeyInZone, MERCHANT_TZ } from '@/utils/timezone'
 
 export function resolveDateRange(
   filters: DashboardFilters,
   dataMin: string,
   dataMax: string,
 ): { start: string; end: string } {
-  const today = new Date()
   const preset = filters.datePreset
-  let start: Date
-  let end: Date = today
+  const todayKey = dayKeyInZone(new Date(), MERCHANT_TZ)
 
   switch (preset) {
     case 'today':
-      start = today
-      break
-    case 'yesterday':
-      start = subDays(today, 1)
-      end = start
-      break
-    case 'last7':
-      start = subDays(today, 6)
-      break
-    case 'last30':
-      start = subDays(today, 29)
-      break
-    case 'thisMonth':
-      start = startOfMonth(today)
-      end = endOfMonth(today)
-      break
-    case 'prevMonth': {
-      const prev = subMonths(today, 1)
-      start = startOfMonth(prev)
-      end = endOfMonth(prev)
-      break
+      return { start: todayKey, end: todayKey }
+    case 'yesterday': {
+      const todayStart = parseISO(`${todayKey}T12:00:00`)
+      const yKey = dayKeyInZone(subDays(todayStart, 1), MERCHANT_TZ)
+      return { start: yKey, end: yKey }
     }
-    case 'thisYear':
-      start = startOfYear(today)
-      end = endOfYear(today)
-      break
+    case 'last7': {
+      const end = todayKey
+      const start = dayKeyInZone(subDays(parseISO(`${todayKey}T12:00:00`), 6), MERCHANT_TZ)
+      return { start, end }
+    }
+    case 'last30': {
+      const end = todayKey
+      const start = dayKeyInZone(subDays(parseISO(`${todayKey}T12:00:00`), 29), MERCHANT_TZ)
+      return { start, end }
+    }
+    case 'thisMonth': {
+      const d = parseISO(`${todayKey}T12:00:00`)
+      return {
+        start: dayKeyInZone(startOfMonth(d), MERCHANT_TZ),
+        end: dayKeyInZone(endOfMonth(d), MERCHANT_TZ),
+      }
+    }
+    case 'prevMonth': {
+      const d = subMonths(parseISO(`${todayKey}T12:00:00`), 1)
+      return {
+        start: dayKeyInZone(startOfMonth(d), MERCHANT_TZ),
+        end: dayKeyInZone(endOfMonth(d), MERCHANT_TZ),
+      }
+    }
+    case 'thisYear': {
+      const d = parseISO(`${todayKey}T12:00:00`)
+      return {
+        start: dayKeyInZone(startOfYear(d), MERCHANT_TZ),
+        end: dayKeyInZone(endOfYear(d), MERCHANT_TZ),
+      }
+    }
     case 'custom':
-      start = filters.customStart ? parseISO(filters.customStart) : parseISO(dataMin)
-      end = filters.customEnd ? parseISO(filters.customEnd) : parseISO(dataMax)
-      break
+      return {
+        start: filters.customStart || dataMin,
+        end: filters.customEnd || dataMax,
+      }
     case 'all':
     default:
-      start = parseISO(dataMin)
-      end = parseISO(dataMax)
-      break
-  }
-
-  return {
-    start: format(start, 'yyyy-MM-dd'),
-    end: format(end, 'yyyy-MM-dd'),
+      return { start: dataMin, end: dataMax }
   }
 }
 
@@ -102,7 +107,7 @@ export function filterLines(lines: SalesLine[], filters: DashboardFilters, dataM
 
 export function dataExtent(lines: SalesLine[]): { min: string; max: string } {
   if (!lines.length) {
-    const t = format(new Date(), 'yyyy-MM-dd')
+    const t = dayKeyInZone(new Date(), MERCHANT_TZ)
     return { min: t, max: t }
   }
   let min = lines[0].orderDate
@@ -335,24 +340,18 @@ export function priorComparisonLines(
 
   const { start, end } = resolveDateRange(filters, dataMin, dataMax)
   const isDaily = start === end
-  const todayKey = format(new Date(), 'yyyy-MM-dd')
+  const todayKey = dayKeyInZone(new Date(), MERCHANT_TZ)
 
   if (isDaily) {
-    const day = parseISO(start)
-    const priorKey = format(subDays(day, 1), 'yyyy-MM-dd')
+    const dayStart = dayBoundsInZone(start, MERCHANT_TZ).start
+    const priorKey = dayKeyInZone(new Date(dayStart.getTime() - 1), MERCHANT_TZ)
     const priorDayLines = all.filter((l) => l.orderDate === priorKey)
 
-    // In-progress day → cut prior day at the same clock time
+    // In-progress day → cut prior day at the same elapsed time (merchant TZ)
     if (start === todayKey) {
-      const now = new Date()
-      const priorStart = parseISO(priorKey)
-      priorStart.setHours(0, 0, 0, 0)
-      const cutoffMs =
-        priorStart.getTime() +
-        now.getHours() * 3600000 +
-        now.getMinutes() * 60000 +
-        now.getSeconds() * 1000 +
-        now.getMilliseconds()
+      const priorStart = dayBoundsInZone(priorKey, MERCHANT_TZ).start
+      const elapsed = Date.now() - dayStart.getTime()
+      const cutoffMs = priorStart.getTime() + Math.max(0, elapsed)
 
       const hasTimestamps = priorDayLines.some((l) => l.createdTimeMs != null)
       if (hasTimestamps) {
@@ -363,11 +362,9 @@ export function priorComparisonLines(
           priorSameTime: true,
         }
       }
-      // No timestamps in cache yet — fall back to full prior day
       return { lines: priorDayLines, priorSameTime: false }
     }
 
-    // Completed single day → prior day end-of-day (full day)
     return { lines: priorDayLines, priorSameTime: false }
   }
 
@@ -609,4 +606,165 @@ export const DATE_PRESET_LABELS: Record<DatePreset, string> = {
   prevMonth: 'Previous Month',
   thisYear: 'This Year',
   custom: 'Custom',
+}
+
+/** Categories watched in the right-side Top Sellers panel (exact Clover names). */
+export const WATCH_CATEGORIES = [
+  'AB - Cake 2LB',
+  'AB - Cake 1LB',
+  'AB - Pastries',
+  'AB - Puffs',
+  'AB - Snacks',
+  'H - Deluxe Ice Cream',
+  'H - Ice creams and Shakes',
+  'H - Premium Ice Cream',
+  'H - Traditional Ice Cream',
+  'PCE - Chaaps',
+  'PCE - Dosas',
+  'PCE - Idli',
+  'PCE - Momos',
+  'PCE - Snacks South Indian',
+  'PCE - Specialty Dosas',
+  'PCE - Wraps',
+] as const
+
+/** Second-row brand group widgets */
+export const PCE_CHENNAI_CATEGORIES = [
+  'PCE - Dosas',
+  'PCE - Idli',
+  'PCE - Snacks South Indian',
+  'PCE - Specialty Dosas',
+] as const
+
+export const PCE_PUNJAB_CATEGORIES = [
+  'PCE - Chaaps',
+  'PCE - Momos',
+  'PCE - Wraps',
+] as const
+
+export const HARVYS_ICE_CREAM_CATEGORIES = [
+  'H - Deluxe Ice Cream',
+  'H - Ice creams and Shakes',
+  'H - Premium Ice Cream',
+  'H - Traditional Ice Cream',
+] as const
+
+export type CategoryGroupBreakdown = {
+  totalRevenue: number
+  totalQuantity: number
+  categories: { category: string; label: string; revenue: number; quantity: number }[]
+}
+
+function shortCategoryLabel(category: string): string {
+  const i = category.indexOf(' - ')
+  return i >= 0 ? category.slice(i + 3) : category
+}
+
+/** Sum revenue for a fixed set of categories; always returns a row per category (may be $0). */
+export function categoryGroupRevenue(
+  lines: SalesLine[],
+  categories: readonly string[],
+): CategoryGroupBreakdown {
+  const wanted = new Map(categories.map((c) => [c.toLowerCase(), c]))
+  const totals = new Map<string, { revenue: number; quantity: number }>()
+  for (const c of categories) totals.set(c, { revenue: 0, quantity: 0 })
+
+  for (const l of lines) {
+    const canonical = wanted.get(String(l.category || '').trim().toLowerCase())
+    if (!canonical) continue
+    const row = totals.get(canonical)!
+    row.revenue += l.revenue
+    row.quantity += l.quantity
+  }
+
+  const cats = categories.map((category) => {
+    const row = totals.get(category)!
+    return {
+      category,
+      label: shortCategoryLabel(category),
+      revenue: row.revenue,
+      quantity: row.quantity,
+    }
+  })
+
+  return {
+    totalRevenue: cats.reduce((s, c) => s + c.revenue, 0),
+    totalQuantity: cats.reduce((s, c) => s + c.quantity, 0),
+    categories: cats,
+  }
+}
+
+/** Top N products by revenue across all filtered lines. */
+export function topProductsByRevenue(
+  lines: SalesLine[],
+  limit = 3,
+): { items: import('@/types/sales').CategoryTopItem[]; totalRevenue: number } {
+  const map = new Map<string, { quantity: number; revenue: number }>()
+  for (const l of lines) {
+    if (!(l.revenue > 0 || l.quantity > 0)) continue
+    const prev = map.get(l.productName) ?? { quantity: 0, revenue: 0 }
+    prev.quantity += l.quantity
+    prev.revenue += l.revenue
+    map.set(l.productName, prev)
+  }
+  const items = [...map.entries()]
+    .map(([productName, v]) => ({
+      productName,
+      quantity: v.quantity,
+      revenue: v.revenue,
+    }))
+    .sort((a, b) => b.revenue - a.revenue || b.quantity - a.quantity)
+    .slice(0, limit)
+  return {
+    items,
+    totalRevenue: items.reduce((s, i) => s + i.revenue, 0),
+  }
+}
+
+/**
+ * For each watched category, return up to `limit` products ranked by revenue.
+ * Categories with no sales in the filtered window are omitted.
+ */
+export function topSellersByWatchCategories(
+  lines: SalesLine[],
+  categories: readonly string[] = WATCH_CATEGORIES,
+  limit = 3,
+): CategoryTopSellers[] {
+  const byCat = new Map<string, Map<string, { quantity: number; revenue: number }>>()
+
+  const wanted = new Map(categories.map((c) => [c.toLowerCase(), c]))
+
+  for (const l of lines) {
+    const canonical = wanted.get(String(l.category || '').trim().toLowerCase())
+    if (!canonical) continue
+    if (!(l.revenue > 0 || l.quantity > 0)) continue
+
+    let products = byCat.get(canonical)
+    if (!products) {
+      products = new Map()
+      byCat.set(canonical, products)
+    }
+    const prev = products.get(l.productName) ?? { quantity: 0, revenue: 0 }
+    prev.quantity += l.quantity
+    prev.revenue += l.revenue
+    products.set(l.productName, prev)
+  }
+
+  const out: CategoryTopSellers[] = []
+  for (const cat of categories) {
+    const products = byCat.get(cat)
+    if (!products?.size) continue
+    const items = [...products.entries()]
+      .map(([productName, v]) => ({
+        productName,
+        quantity: v.quantity,
+        revenue: v.revenue,
+      }))
+      .filter((i) => i.quantity > 0 || i.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue || b.quantity - a.quantity)
+      .slice(0, limit)
+    if (!items.length) continue
+    out.push({ category: cat, items })
+  }
+  return out
 }

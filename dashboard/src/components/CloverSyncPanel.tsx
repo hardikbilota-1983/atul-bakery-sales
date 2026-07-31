@@ -3,19 +3,20 @@ import { CloudDownload, Loader2, RefreshCw, CheckCircle2, AlertCircle } from 'lu
 import { fetchCloverStatus, syncClover, type CloverStatus } from '@/services/cloverApi'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
+import { dayKeyInZone, MERCHANT_TZ } from '@/utils/timezone'
+
+type SyncRange = { start: string; end: string }
 
 type Props = {
-  onSynced: () => Promise<void> | void
+  /** Called after a successful Clover pull. Receives the fetch range so the dashboard can filter to it. */
+  onSynced: (range: SyncRange) => Promise<void> | void
 }
 
-function defaultRange() {
-  const end = new Date()
-  const start = new Date()
-  start.setDate(end.getDate() - 90)
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  }
+function defaultRange(): SyncRange {
+  const end = dayKeyInZone(new Date(), MERCHANT_TZ)
+  const endNoon = new Date(`${end}T12:00:00`)
+  const start = dayKeyInZone(new Date(endNoon.getTime() - 6 * 86400000), MERCHANT_TZ)
+  return { start, end }
 }
 
 export function CloverSyncPanel({ onSynced }: Props) {
@@ -55,7 +56,7 @@ export function CloverSyncPanel({ onSynced }: Props) {
         `Synced ${result.orderCount.toLocaleString()} orders → ${result.lineCount.toLocaleString()} line items`,
       )
       await refreshStatus()
-      await onSynced()
+      await onSynced({ start: startDate, end: endDate })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -110,6 +111,9 @@ export function CloverSyncPanel({ onSynced }: Props) {
             </p>
           )}
 
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            Fetch range (pull from Clover)
+          </p>
           <div className="mb-2 grid grid-cols-2 gap-2">
             <label className="text-[10px] text-muted">
               From
@@ -142,6 +146,11 @@ export function CloverSyncPanel({ onSynced }: Props) {
               </>
             )}
           </Button>
+          <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
+            Changing dates alone does nothing — click Fetch. After sync, the dashboard filter updates
+            to this range. Prefer shorter ranges (e.g. Today or Last 7 Days) to avoid Clover rate
+            limits; long ranges sync in weekly chunks and may take a few minutes.
+          </p>
         </>
       )}
 
