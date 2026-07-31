@@ -11,6 +11,7 @@ export type LoadedDataset = {
   catalog: CloverCatalog | null
   fromCache?: boolean
   dayKey?: string
+  cachedDays?: string[]
 }
 
 /** Default load: Clover bootstrap only (today cached server-side). No CSV/PDF. */
@@ -54,6 +55,7 @@ export async function loadAllSalesData(extraFiles?: File[]): Promise<LoadedDatas
       catalog: boot.catalog,
       fromCache: boot.fromCache,
       dayKey: boot.dayKey,
+      cachedDays: boot.cachedDays ?? [],
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

@@ -47,6 +47,7 @@ export type CloverBootstrap = {
   syncedAt: string
   orderCount: number
   lineCount: number
+  cachedDays?: string[]
   lines: SalesLine[]
   catalog: CloverCatalog
   error?: string
@@ -83,10 +84,33 @@ export async function fetchCloverCatalog(force = false): Promise<CloverCatalog> 
   return json
 }
 
-export async function fetchCloverSalesLines(): Promise<SalesLine[]> {
+export async function fetchCloverSalesCache(): Promise<{
+  lines: SalesLine[]
+  cachedDays: string[]
+  syncedAt?: string
+  lineCount?: number
+  orderCount?: number
+}> {
   const res = await fetch('/api/clover/sales')
-  if (res.status === 404) return []
+  if (res.status === 404) return { lines: [], cachedDays: [] }
   if (!res.ok) throw new Error(`Clover sales ${res.status}`)
-  const json = (await res.json()) as { lines?: SalesLine[] }
-  return json.lines ?? []
+  const json = (await res.json()) as {
+    lines?: SalesLine[]
+    cachedDays?: string[]
+    syncedAt?: string
+    lineCount?: number
+    orderCount?: number
+  }
+  return {
+    lines: json.lines ?? [],
+    cachedDays: json.cachedDays ?? [],
+    syncedAt: json.syncedAt,
+    lineCount: json.lineCount,
+    orderCount: json.orderCount,
+  }
+}
+
+export async function fetchCloverSalesLines(): Promise<SalesLine[]> {
+  const data = await fetchCloverSalesCache()
+  return data.lines
 }

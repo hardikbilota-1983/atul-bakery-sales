@@ -147,6 +147,7 @@ app.post('/api/clover/bootstrap', async (_req, res) => {
       syncedAt: sales.syncedAt,
       orderCount: sales.orderCount,
       lineCount: sales.lineCount,
+      cachedDays: sales.cachedDays ?? [],
       lines: sales.lines,
       rateLimited: rateLimited || undefined,
       catalog: {

@@ -50,7 +50,7 @@ import { ProductCompare } from '@/components/ProductCompare'
 import { InsightsSidePanel, useInsightsOpen } from '@/components/InsightsSidePanel'
 
 export function DashboardPage() {
-  const { loading, error, filtered, derived, capabilities, reload, source } = useSales()
+  const { loading, rangeLoading, error, filtered, derived, capabilities, reload, source } = useSales()
   const { theme, toggle } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
@@ -218,6 +218,17 @@ export function DashboardPage() {
         </header>
 
         <div ref={exportRef} className="space-y-4">
+          {rangeLoading && (
+            <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3 text-sm text-accent">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+              Loading selected date range from Clover… dashboard will update when ready.
+            </div>
+          )}
+          {error && (
+            <div className="glass rounded-2xl border border-danger/30 px-4 py-3 text-sm text-danger">
+              {error}
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
               title="Net Sales"

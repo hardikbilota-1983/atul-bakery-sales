@@ -68,6 +68,7 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
     fromCache,
     dayKey,
     catalog,
+    rangeLoading,
   } = useSales()
 
   return (
@@ -79,6 +80,11 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
             {fromCache ? 'Cached' : 'Live'} · {dayKey ?? extent.min}
             {extent.min !== extent.max ? ` → ${extent.max}` : ''}
           </p>
+          {rangeLoading && (
+            <p className="mt-1 text-[11px] font-medium text-accent">
+              Loading selected dates from Clover…
+            </p>
+          )}
         </div>
         <div className="flex gap-1">
           <Button size="icon" variant="ghost" onClick={resetFilters} title="Reset">
@@ -118,10 +124,11 @@ export function FilterSidebar({ onClose }: { onClose?: () => void }) {
       <div className="flex-1 space-y-4 overflow-y-auto pr-1">
         <div>
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted">
-            Date filter (dashboard view)
+            Date filter
           </label>
           <p className="mb-1.5 text-[10px] text-muted">
-            Filters already-loaded data. Use Fetch above first if the range is not cached yet.
+            Selecting a past range loads those days from Clover automatically (may take a minute for
+            long ranges).
           </p>
           <div className="grid grid-cols-2 gap-1.5">
             {(Object.keys(DATE_PRESET_LABELS) as DatePreset[]).map((p) => (

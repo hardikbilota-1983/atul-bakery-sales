@@ -4,12 +4,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
 import type { DashboardFilters, DataCapabilities, SalesLine } from '@/types/sales'
 import { loadAllSalesData } from '@/services/discover'
-import type { CloverCatalog } from '@/services/cloverApi'
+import { fetchCloverSalesCache, syncClover, type CloverCatalog } from '@/services/cloverApi'
 import {
   aggregateByPeriod,
   aggregateCategories,
@@ -19,7 +20,9 @@ import {
   dataExtent,
   filterLines,
   priorComparisonLines,
+  resolveDateRange,
 } from '@/utils/analytics'
+import { rangeFullyCached } from '@/utils/timezone'
 
 const defaultFilters: DashboardFilters = {
   datePreset: 'today',
@@ -35,6 +38,8 @@ const defaultFilters: DashboardFilters = {
 
 type SalesCtx = {
   loading: boolean
+  /** Fetching a past date range from Clover so the filter can show data. */
+  rangeLoading: boolean
   error: string | null
   files: string[]
   lines: SalesLine[]
@@ -49,6 +54,7 @@ type SalesCtx = {
   catalog: CloverCatalog | null
   fromCache: boolean
   dayKey: string | null
+  cachedDays: string[]
   options: {
     products: string[]
     categories: string[]
@@ -86,6 +92,7 @@ const Ctx = createContext<SalesCtx | null>(null)
 
 export function SalesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
+  const [rangeLoading, setRangeLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lines, setLines] = useState<SalesLine[]>([])
   const [files, setFiles] = useState<string[]>([])
@@ -103,6 +110,8 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   const [catalog, setCatalog] = useState<CloverCatalog | null>(null)
   const [fromCache, setFromCache] = useState(false)
   const [dayKey, setDayKey] = useState<string | null>(null)
+  const [cachedDays, setCachedDays] = useState<string[]>([])
+  const rangeFetchKey = useRef<string | null>(null)
 
   const reload = useCallback(async (extra?: File[]) => {
     setLoading(true)
@@ -116,6 +125,11 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       setCatalog(data.catalog)
       setFromCache(Boolean(data.fromCache))
       setDayKey(data.dayKey ?? null)
+      const days =
+        data.cachedDays?.length
+          ? data.cachedDays
+          : [...new Set(data.lines.map((l) => l.orderDate))].sort()
+      setCachedDays(days)
       if (data.errors.length && !data.lines.length) {
         setError(data.errors.join('; '))
       }
@@ -135,6 +149,73 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     () => filterLines(lines, filters, extent.min, extent.max),
     [lines, filters, extent],
   )
+
+  /**
+   * Date presets only filtered local cache before — past ranges looked empty.
+   * When the selected window has days not yet cached, pull them from Clover.
+   */
+  useEffect(() => {
+    if (loading) return
+    if (source !== 'clover' && source !== 'mixed') return
+    if (filters.datePreset === 'all') return
+    if (filters.datePreset === 'custom' && (!filters.customStart || !filters.customEnd)) return
+
+    const { start, end } = resolveDateRange(filters, extent.min, extent.max)
+    if (!start || !end || start > end) return
+
+    if (rangeFullyCached(start, end, cachedDays)) {
+      rangeFetchKey.current = `${start}:${end}`
+      return
+    }
+
+    const key = `${start}:${end}`
+    let cancelled = false
+    const delay = filters.datePreset === 'custom' ? 450 : 80
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (cancelled) return
+        rangeFetchKey.current = key
+        setRangeLoading(true)
+        setError(null)
+        try {
+          await syncClover(start, end)
+          if (cancelled) return
+          const cache = await fetchCloverSalesCache()
+          if (cancelled) return
+          setLines(cache.lines)
+          setCachedDays(
+            cache.cachedDays.length
+              ? cache.cachedDays
+              : [...new Set(cache.lines.map((l) => l.orderDate))].sort(),
+          )
+          setCapabilities(detectCaps(cache.lines))
+          setFromCache(false)
+          setSource(cache.lines.length ? 'clover' : 'empty')
+        } catch (e) {
+          if (!cancelled) {
+            setError(e instanceof Error ? e.message : String(e))
+            rangeFetchKey.current = null
+          }
+        } finally {
+          if (!cancelled) setRangeLoading(false)
+        }
+      })()
+    }, delay)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    loading,
+    source,
+    filters.datePreset,
+    filters.customStart,
+    filters.customEnd,
+    extent.min,
+    extent.max,
+    cachedDays,
+  ])
 
   const options = useMemo(() => {
     const categories =
@@ -183,10 +264,9 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   const setFilters = useCallback((patch: Partial<DashboardFilters>) => {
     setFiltersState((f) => {
       const next = { ...f, ...patch }
-      // Drop product picks that are outside the newly selected categories
       if (patch.categories) {
         if (!patch.categories.length) {
-          // keep products as-is when clearing categories
+          // keep products
         } else {
           const allowed = new Set<string>()
           const byCat = catalog?.productsByCategory
@@ -210,6 +290,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
 
   const value: SalesCtx = {
     loading,
+    rangeLoading,
     error,
     files,
     lines,
@@ -224,11 +305,39 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     catalog,
     fromCache,
     dayKey,
+    cachedDays,
     options,
     derived,
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
+}
+
+function detectCaps(lines: SalesLine[]): DataCapabilities {
+  if (!lines.length) {
+    return {
+      hasHourly: false,
+      hasDaily: false,
+      hasCustomers: false,
+      hasPayments: false,
+      hasOrderIds: false,
+      hasMultiStore: false,
+      grain: 'monthly',
+    }
+  }
+  const hasCustomers = lines.some((l) => Boolean(l.customer))
+  const hasPayments = lines.some((l) => Boolean(l.paymentMethod))
+  const hasOrderIds = lines.some((l) => Boolean(l.orderId))
+  const stores = new Set(lines.map((l) => l.store))
+  return {
+    hasHourly: false,
+    hasDaily: true,
+    hasCustomers,
+    hasPayments,
+    hasOrderIds,
+    hasMultiStore: stores.size > 1,
+    grain: hasOrderIds ? 'transaction' : 'daily',
+  }
 }
 
 export function useSales() {
