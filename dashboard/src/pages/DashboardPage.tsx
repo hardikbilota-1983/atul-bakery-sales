@@ -48,9 +48,22 @@ import {
 import { exportCsv, exportElementPdf, exportElementPng, exportExcel } from '@/utils/export'
 import { ProductCompare } from '@/components/ProductCompare'
 import { InsightsSidePanel, useInsightsOpen } from '@/components/InsightsSidePanel'
+import { WeeklyPerformance } from '@/components/WeeklyPerformance'
 
 export function DashboardPage() {
-  const { loading, rangeLoading, error, filtered, derived, capabilities, reload, source } = useSales()
+  const {
+    loading,
+    rangeLoading,
+    error,
+    lines,
+    filtered,
+    filters,
+    extent,
+    derived,
+    capabilities,
+    reload,
+    source,
+  } = useSales()
   const { theme, toggle } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
@@ -294,6 +307,13 @@ export function DashboardPage() {
               delay={0.35}
             />
           </div>
+
+          <WeeklyPerformance
+            lines={lines}
+            filters={filters}
+            dataMin={extent.min}
+            dataMax={extent.max}
+          />
 
           {showCompare && <ProductCompare products={products} />}
 

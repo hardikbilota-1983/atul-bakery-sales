@@ -11,18 +11,24 @@ import {
 } from 'date-fns'
 import type {
   AbcRow,
+  CalendarWeek,
   CategoryAgg,
   CategoryTopSellers,
+  CategoryWeekRow,
   DashboardFilters,
   DatePreset,
   Insight,
+  ItemWeekRow,
   KpiBundle,
   PeriodPoint,
   ProductAgg,
   SalesLine,
   TrendGrain,
+  WeekMetricCell,
+  WeekScorecard,
 } from '@/types/sales'
 import { dayBoundsInZone, dayKeyInZone, MERCHANT_TZ } from '@/utils/timezone'
+import { formatInTimeZone } from 'date-fns-tz'
 
 export function resolveDateRange(
   filters: DashboardFilters,
@@ -767,4 +773,299 @@ export function topSellersByWatchCategories(
     out.push({ category: cat, items })
   }
   return out
+}
+
+// ─── Weekly performance (calendar weeks Mon–Sun, America/New_York) ─────────
+
+export function weekOverWeekDelta(current: number, previous: number): number | null {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return null
+  if (previous === 0) return current > 0 ? 100 : null
+  return ((current - previous) / previous) * 100
+}
+
+function addDayKeys(dayKey: string, deltaDays: number): string {
+  const { start } = dayBoundsInZone(dayKey, MERCHANT_TZ)
+  // Noon offset avoids DST edge surprises when stepping whole days
+  return dayKeyInZone(new Date(start.getTime() + deltaDays * 86400000 + 12 * 3600000), MERCHANT_TZ)
+}
+
+/** ISO weekday 1=Mon … 7=Sun in merchant TZ. */
+function isoWeekday(dayKey: string): number {
+  const { start } = dayBoundsInZone(dayKey, MERCHANT_TZ)
+  return Number(formatInTimeZone(start, MERCHANT_TZ, 'i'))
+}
+
+function mondayOnOrBefore(dayKey: string): string {
+  const dow = isoWeekday(dayKey)
+  return addDayKeys(dayKey, -(dow - 1))
+}
+
+function formatRangeLabel(startKey: string, endKey: string): string {
+  const a = format(parseISO(`${startKey}T12:00:00`), 'MMM d')
+  const b = format(parseISO(`${endKey}T12:00:00`), 'MMM d')
+  return a === b ? a : `${a}–${b}`
+}
+
+/** yyyy-MM month containing the filter end date (or today for open-ended presets). */
+export function focusMonthKey(
+  filters: DashboardFilters,
+  dataMin: string,
+  dataMax: string,
+): string {
+  const { end } = resolveDateRange(filters, dataMin, dataMax)
+  const todayKey = dayKeyInZone(new Date(), MERCHANT_TZ)
+  const key = end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : todayKey
+  return key.slice(0, 7)
+}
+
+/**
+ * Calendar weeks (Mon–Sun) that intersect the month.
+ * Day ranges are clipped to the month so Week 1 may be a partial week.
+ */
+export function calendarWeeksInMonth(monthKey: string): CalendarWeek[] {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return []
+  const [y, m] = monthKey.split('-').map(Number)
+  const monthStart = `${monthKey}-01`
+  const lastDay = new Date(y, m, 0).getDate()
+  const monthEnd = `${monthKey}-${String(lastDay).padStart(2, '0')}`
+
+  let cursorMon = mondayOnOrBefore(monthStart)
+  const weeks: CalendarWeek[] = []
+  let index = 0
+
+  while (cursorMon <= monthEnd) {
+    const weekSun = addDayKeys(cursorMon, 6)
+    const startKey = cursorMon < monthStart ? monthStart : cursorMon
+    const endKey = weekSun > monthEnd ? monthEnd : weekSun
+    if (startKey <= endKey && startKey <= monthEnd && endKey >= monthStart) {
+      index += 1
+      weeks.push({
+        id: `${monthKey}-W${index}`,
+        index,
+        label: `Week ${index}`,
+        rangeLabel: formatRangeLabel(startKey, endKey),
+        startKey,
+        endKey,
+      })
+    }
+    cursorMon = addDayKeys(cursorMon, 7)
+    if (index > 6) break
+  }
+  return weeks
+}
+
+/** Full Mon–Sun week containing `dayKey` (not clipped). */
+export function calendarWeekContaining(dayKey: string): CalendarWeek {
+  const startKey = mondayOnOrBefore(dayKey)
+  const endKey = addDayKeys(startKey, 6)
+  return {
+    id: `${startKey}_${endKey}`,
+    index: 0,
+    label: 'Week',
+    rangeLabel: formatRangeLabel(startKey, endKey),
+    startKey,
+    endKey,
+  }
+}
+
+export function filterLinesByDateRange(
+  lines: SalesLine[],
+  startKey: string,
+  endKey: string,
+): SalesLine[] {
+  return lines.filter((l) => l.orderDate >= startKey && l.orderDate <= endKey)
+}
+
+function attachWow(cells: Omit<WeekMetricCell, 'wowPct'>[]): WeekMetricCell[] {
+  return cells.map((c, i) => ({
+    ...c,
+    wowPct: i === 0 ? null : weekOverWeekDelta(c.revenue, cells[i - 1].revenue),
+  }))
+}
+
+/**
+ * Category × week revenue grid. Categories with zero sales across all weeks are omitted.
+ */
+export function aggregateByWeekAndCategory(
+  lines: SalesLine[],
+  weeks: CalendarWeek[],
+  categories: readonly string[],
+): CategoryWeekRow[] {
+  if (!weeks.length || !categories.length) return []
+
+  const wanted = new Map(categories.map((c) => [c.toLowerCase(), c]))
+  const map = new Map<string, Map<string, { revenue: number; quantity: number }>>()
+
+  for (const cat of categories) {
+    const weekMap = new Map<string, { revenue: number; quantity: number }>()
+    for (const w of weeks) weekMap.set(w.id, { revenue: 0, quantity: 0 })
+    map.set(cat, weekMap)
+  }
+
+  for (const l of lines) {
+    const canonical = wanted.get(String(l.category || '').trim().toLowerCase())
+    if (!canonical) continue
+    const week = weeks.find((w) => l.orderDate >= w.startKey && l.orderDate <= w.endKey)
+    if (!week) continue
+    const cell = map.get(canonical)!.get(week.id)!
+    cell.revenue += l.revenue
+    cell.quantity += l.quantity
+  }
+
+  const rows: CategoryWeekRow[] = []
+  for (const cat of categories) {
+    const weekMap = map.get(cat)!
+    const raw = weeks.map((w) => {
+      const cell = weekMap.get(w.id)!
+      return { weekId: w.id, revenue: cell.revenue, quantity: cell.quantity }
+    })
+    const totalRevenue = raw.reduce((s, c) => s + c.revenue, 0)
+    const totalQuantity = raw.reduce((s, c) => s + c.quantity, 0)
+    if (totalRevenue <= 0 && totalQuantity <= 0) continue
+    rows.push({
+      key: cat,
+      label: cat,
+      category: cat,
+      cells: attachWow(raw),
+      totalRevenue,
+      totalQuantity,
+    })
+  }
+  return rows.sort((a, b) => b.totalRevenue - a.totalRevenue)
+}
+
+/** Top items in a category across the same weeks. */
+export function aggregateByWeekAndItem(
+  lines: SalesLine[],
+  weeks: CalendarWeek[],
+  category: string,
+  limit = 8,
+): ItemWeekRow[] {
+  if (!weeks.length) return []
+  const catLower = category.toLowerCase()
+  const productTotals = new Map<string, number>()
+  const byProduct = new Map<string, Map<string, { revenue: number; quantity: number }>>()
+
+  for (const l of lines) {
+    if (String(l.category || '').trim().toLowerCase() !== catLower) continue
+    const week = weeks.find((w) => l.orderDate >= w.startKey && l.orderDate <= w.endKey)
+    if (!week) continue
+    productTotals.set(l.productName, (productTotals.get(l.productName) ?? 0) + l.revenue)
+    let weekMap = byProduct.get(l.productName)
+    if (!weekMap) {
+      weekMap = new Map()
+      for (const w of weeks) weekMap.set(w.id, { revenue: 0, quantity: 0 })
+      byProduct.set(l.productName, weekMap)
+    }
+    const cell = weekMap.get(week.id)!
+    cell.revenue += l.revenue
+    cell.quantity += l.quantity
+  }
+
+  const topNames = [...productTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name]) => name)
+
+  return topNames.map((productName) => {
+    const weekMap = byProduct.get(productName)!
+    const raw = weeks.map((w) => {
+      const cell = weekMap.get(w.id) ?? { revenue: 0, quantity: 0 }
+      return { weekId: w.id, revenue: cell.revenue, quantity: cell.quantity }
+    })
+    return {
+      key: productName,
+      label: productName,
+      productName,
+      cells: attachWow(raw),
+      totalRevenue: raw.reduce((s, c) => s + c.revenue, 0),
+      totalQuantity: raw.reduce((s, c) => s + c.quantity, 0),
+    }
+  })
+}
+
+/** Store-wide this calendar week vs last calendar week scorecard. */
+export function thisVsLastWeekScorecard(
+  lines: SalesLine[],
+  asOfDayKey: string = dayKeyInZone(new Date(), MERCHANT_TZ),
+): WeekScorecard {
+  const thisWeek = calendarWeekContaining(asOfDayKey)
+  const lastWeekStart = addDayKeys(thisWeek.startKey, -7)
+  const lastWeek = calendarWeekContaining(lastWeekStart)
+
+  const thisLines = filterLinesByDateRange(lines, thisWeek.startKey, thisWeek.endKey)
+  const lastLines = filterLinesByDateRange(lines, lastWeek.startKey, lastWeek.endKey)
+
+  const thisRev = thisLines.reduce((s, l) => s + l.revenue, 0)
+  const lastRev = lastLines.reduce((s, l) => s + l.revenue, 0)
+  const thisQty = thisLines.reduce((s, l) => s + l.quantity, 0)
+  const lastQty = lastLines.reduce((s, l) => s + l.quantity, 0)
+  const thisOrders = countPaidOrders(thisLines)
+  const lastOrders = countPaidOrders(lastLines)
+  const thisAov = thisOrders ? thisRev / thisOrders : 0
+  const lastAov = lastOrders ? lastRev / lastOrders : 0
+
+  return {
+    thisWeek,
+    lastWeek,
+    metrics: [
+      {
+        key: 'revenue',
+        label: 'Net Sales',
+        thisValue: thisRev,
+        lastValue: lastRev,
+        deltaPct: weekOverWeekDelta(thisRev, lastRev),
+        format: 'currency',
+      },
+      {
+        key: 'orders',
+        label: 'Paid Orders',
+        thisValue: thisOrders,
+        lastValue: lastOrders,
+        deltaPct: weekOverWeekDelta(thisOrders, lastOrders),
+        format: 'number',
+      },
+      {
+        key: 'qty',
+        label: 'Items Sold',
+        thisValue: thisQty,
+        lastValue: lastQty,
+        deltaPct: weekOverWeekDelta(thisQty, lastQty),
+        format: 'number',
+      },
+      {
+        key: 'aov',
+        label: 'Avg Order',
+        thisValue: thisAov,
+        lastValue: lastAov,
+        deltaPct: weekOverWeekDelta(thisAov, lastAov),
+        format: 'currency',
+      },
+    ],
+  }
+}
+
+export const WEEKLY_BRAND_PRESETS: {
+  id: string
+  label: string
+  categories: readonly string[]
+}[] = [
+  { id: 'watch', label: 'All watched', categories: WATCH_CATEGORIES },
+  { id: 'chennai', label: 'PCE - Chennai', categories: PCE_CHENNAI_CATEGORIES },
+  { id: 'punjab', label: 'PCE - Punjab', categories: PCE_PUNJAB_CATEGORIES },
+  { id: 'harvys', label: "Harvy's Icecream", categories: HARVYS_ICE_CREAM_CATEGORIES },
+]
+
+/** Days needed to show a full month week grid + this/last week scorecard. */
+export function weeklyPerformanceDateSpan(monthKey: string): { start: string; end: string } {
+  const weeks = calendarWeeksInMonth(monthKey)
+  const today = dayKeyInZone(new Date(), MERCHANT_TZ)
+  const thisWeek = calendarWeekContaining(today)
+  const lastWeek = calendarWeekContaining(addDayKeys(thisWeek.startKey, -7))
+  const monthDays = weeks.length
+    ? { start: weeks[0].startKey, end: weeks[weeks.length - 1].endKey }
+    : { start: `${monthKey}-01`, end: `${monthKey}-28` }
+  const start = [monthDays.start, lastWeek.startKey, thisWeek.startKey].sort()[0]
+  const end = [monthDays.end, lastWeek.endKey, thisWeek.endKey, today].sort().at(-1)!
+  return { start, end }
 }

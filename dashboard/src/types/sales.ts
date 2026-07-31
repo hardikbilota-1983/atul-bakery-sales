@@ -77,6 +77,57 @@ export type CategoryTopSellers = {
   items: CategoryTopItem[]
 }
 
+/** Monday–Sunday calendar week clipped to a focus month. */
+export type CalendarWeek = {
+  id: string
+  index: number
+  label: string
+  rangeLabel: string
+  startKey: string
+  endKey: string
+}
+
+export type WeekMetricCell = {
+  weekId: string
+  revenue: number
+  quantity: number
+  /** % change vs previous week in the same row; null if no prior week or prior was 0. */
+  wowPct: number | null
+}
+
+export type CategoryWeekRow = {
+  key: string
+  label: string
+  category: string
+  cells: WeekMetricCell[]
+  totalRevenue: number
+  totalQuantity: number
+}
+
+export type ItemWeekRow = {
+  key: string
+  label: string
+  productName: string
+  cells: WeekMetricCell[]
+  totalRevenue: number
+  totalQuantity: number
+}
+
+export type WeekScorecardMetric = {
+  key: string
+  label: string
+  thisValue: number
+  lastValue: number
+  deltaPct: number | null
+  format: 'currency' | 'number'
+}
+
+export type WeekScorecard = {
+  thisWeek: CalendarWeek
+  lastWeek: CalendarWeek
+  metrics: WeekScorecardMetric[]
+}
+
 export type PeriodPoint = {
   period: string
   label: string
